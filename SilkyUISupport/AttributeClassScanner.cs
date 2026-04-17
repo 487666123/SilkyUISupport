@@ -27,13 +27,17 @@ internal class AttributeClassScanner
             // 获取项目的编译结果（包含所有符号信息）
             if (project.GetCompilationAsync().Result is not { } compilation) continue;
 
+            // 先检查项目是否引用了SilkyUI：尝试查找目标Attribute类型
+            var attributeType = compilation.GetTypeByMetadataName(targetAttributeName);
+            if (attributeType == null) continue;
+
             // 查找所有类类型的符号
             var classes = compilation.GetSymbolsWithName(_ => true, SymbolFilter.Type).OfType<INamedTypeSymbol>()
                                     .Where(t => t.TypeKind == TypeKind.Class && t.DeclaredAccessibility == Accessibility.Public);
 
             foreach (var cls in classes)
             {
-                var attrs = cls.GetAttributes().Where(attr => attr.AttributeClass?.ToDisplayString() == targetAttributeName);
+                var attrs = cls.GetAttributes().Where(attr => SymbolEqualityComparer.Default.Equals(attr.AttributeClass, attributeType));
 
                 foreach (var attr in attrs)
                 {

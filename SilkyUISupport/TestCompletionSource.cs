@@ -11,9 +11,21 @@ namespace SilkyUISupport;
 
 [Name("token completion")]
 [Export(typeof(ICompletionSourceProvider))]
-[ContentType("xml")]
+[ContentType("SilkyUI XML")]
 internal class TestCompletionSourceProvider : ICompletionSourceProvider
 {
+    // 定义自定义的SilkyUI XML内容类型，继承自XML，保留XML的所有基础功能
+    [Export]
+    [Name("SilkyUI XML")]
+    [BaseDefinition("xml")]
+    internal static readonly ContentTypeDefinition SilkyUiXmlContentType = null!;
+
+    // 关联.sui.xml文件扩展名到自定义内容类型
+    [Export]
+    [FileExtension(".sui.xml")]
+    [ContentType("SilkyUI XML")]
+    internal static readonly FileExtensionToContentTypeDefinition SuiXmlFileExtension = null!;
+
     [Import]
     public ITextStructureNavigatorSelectorService NavigatorService { get; set; }
 
