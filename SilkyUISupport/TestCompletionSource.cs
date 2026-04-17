@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
+using Microsoft.VisualStudio.Imaging;
 using Microsoft.VisualStudio.Language.Intellisense;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Operations;
@@ -63,15 +64,15 @@ internal class TestCompletionSource : ICompletionSource
         var suiClasses = m_sourceProvider.ClassScanner.GetClassesWithAttribute(TargetAttributeName);
         foreach (var suiClass in suiClasses)
         {
-            m_compList.Add(new Completion(suiClass.Name, suiClass.Name, suiClass.FullName, classIcon, null));
+            m_compList.Add(new Completion4(suiClass.Name, suiClass.Name, suiClass.FullName, KnownMonikers.Class, suffix: suiClass.FullName));
 
             foreach (var property in suiClass.Properties)
             {
-                m_compList.Add(new Completion(property.Name, property.Name, property.Name, propertyIcon, null));
+                m_compList.Add(new Completion4(property.Name, property.Name, property.Name, KnownMonikers.Property));
 
                 foreach (var @enum in property.Enums)
                 {
-                    m_compList.Add(new Completion(@enum, @enum, @enum, propertyIcon, null));
+                    m_compList.Add(new Completion4(@enum, @enum, @enum, KnownMonikers.Enumeration));
                 }
             }
         }
@@ -93,10 +94,11 @@ internal class TestCompletionSource : ICompletionSource
      */
     private ITrackingSpan FindTokenSpanAtPosition(ITrackingPoint point, ICompletionSession session)
     {
-        SnapshotPoint currentPoint = session.TextView.Caret.Position.BufferPosition;
-        ITextSnapshot snapshot = currentPoint.Snapshot;
-        int start = currentPoint.Position;
-        int end = currentPoint.Position;
+        var currentPoint = session.TextView.Caret.Position.BufferPosition;
+        var snapshot = currentPoint.Snapshot;
+
+        var start = currentPoint.Position;
+        var end = currentPoint.Position;
 
         // 向前查找：找到标签起始位置 <，直到遇到分隔符
         while (start > 0)
