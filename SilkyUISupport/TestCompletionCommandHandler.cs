@@ -15,7 +15,7 @@ namespace SilkyUISupport;
 
 [Name("token completion handler")]
 [Export(typeof(IVsTextViewCreationListener))]
-[ContentType("xml")]
+[ContentType("SilkyUI XML")]
 [TextViewRole(PredefinedTextViewRoles.Editable)]
 internal class TestCompletionHandlerProvider : IVsTextViewCreationListener
 {
@@ -125,12 +125,17 @@ internal class TestCompletionCommandHandler : IOleCommandTarget
         var handled = false;
 
         // 处理补全弹出和过滤
-        // 如果用户输入的是字母或数字
-        if (!typedChar.Equals(char.MinValue) && char.IsLetterOrDigit(typedChar))
+        // 触发补全的字符：字母、数字、等号（=）、双引号（"）
+        if (!typedChar.Equals(char.MinValue) &&
+            (char.IsLetterOrDigit(typedChar) || typedChar == '=' || typedChar == '"'))
         {
             if (m_session is not { IsDismissed: false })
                 TriggerCompletion();
-            m_session!.Filter();
+
+            // 只有会话存在且未关闭时才调用 Filter
+            if (m_session is { IsDismissed: false })
+                m_session.Filter();
+
             handled = true;
         }
         else if (commandID == (uint)VSConstants.VSStd2KCmdID.BACKSPACE

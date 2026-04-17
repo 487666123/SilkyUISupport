@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
+using System.Linq;
 using Microsoft.VisualStudio.Imaging;
 using Microsoft.VisualStudio.Language.Intellisense;
 using Microsoft.VisualStudio.Text;
@@ -44,6 +45,39 @@ internal class TestCompletionSourceProvider : ICompletionSourceProvider
  * 当补全弹窗要显示内容时，会调用这个类的方法来获取补全列表
  * 你可以在这里自定义你想要显示的补全项，比如关键字、自定义代码片段等
  */
+/// <summary>
+/// XML 上下文类型
+/// </summary>
+internal enum XmlContextType
+{
+    /// <summary>
+    /// 未知上下文
+    /// </summary>
+    Unknown,
+    /// <summary>
+    /// 标签名位置（<xxx 中的 xxx）
+    /// </summary>
+    TagName,
+    /// <summary>
+    /// 属性名位置（<tag xxx= 中的 xxx）
+    /// </summary>
+    AttributeName,
+    /// <summary>
+    /// 属性值位置（<tag attr="xxx" 中的 xxx）
+    /// </summary>
+    AttributeValue
+}
+
+/// <summary>
+/// XML 上下文信息
+/// </summary>
+internal class XmlContext
+{
+    public XmlContextType ContextType { get; set; }
+    public string CurrentTag { get; set; } = string.Empty;
+    public string CurrentAttribute { get; set; } = string.Empty;
+}
+
 internal class TestCompletionSource : ICompletionSource
 {
     private readonly TestCompletionSourceProvider m_sourceProvider;
@@ -74,27 +108,61 @@ internal class TestCompletionSource : ICompletionSource
 
         // 动态获取带目标特性的类名
         var suiClasses = m_sourceProvider.ClassScanner.GetClassesWithAttribute(TargetAttributeName);
-        foreach (var suiClass in suiClasses)
+
+        // 分析当前上下文
+        var context = AnalyzeXmlContext(session);
+
+        switch (context.ContextType)
         {
-            m_compList.Add(new Completion4(suiClass.Name, suiClass.Name, suiClass.FullName, KnownMonikers.Class, suffix: suiClass.FullName));
-
-            foreach (var property in suiClass.Properties)
+            case XmlContextType.TagName:
             {
-                m_compList.Add(new Completion4(property.Name, property.Name, property.Name, KnownMonikers.Property));
-
-                foreach (var @enum in property.Enums)
+                // 标签名位置：只显示类名
+                foreach (var suiClass in suiClasses)
                 {
-                    m_compList.Add(new Completion4(@enum, @enum, @enum, KnownMonikers.Enumeration));
+                    m_compList.Add(new Completion4(suiClass.Name, suiClass.Name, suiClass.FullName, KnownMonikers.Class, suffix: suiClass.FullName));
                 }
+                break;
+            }
+            case XmlContextType.AttributeName:
+            {
+                // 属性名位置：显示当前标签的所有属性
+                if (!string.IsNullOrEmpty(context.CurrentTag) && suiClasses.FirstOrDefault(c => c.Name == context.CurrentTag) is { } tagClass)
+                {
+                    foreach (var property in tagClass.Properties)
+                    {
+                        m_compList.Add(new Completion4(property.Name, property.Name, property.Name, KnownMonikers.Property));
+                    }
+                }
+                break;
+            }
+            case XmlContextType.AttributeValue:
+            {
+                // 属性值位置：只显示当前属性的枚举值
+                if (!string.IsNullOrEmpty(context.CurrentTag) &&
+                    !string.IsNullOrEmpty(context.CurrentAttribute) &&
+                    suiClasses.FirstOrDefault(c => c.Name == context.CurrentTag) is { } currentClass &&
+                    currentClass.Properties.FirstOrDefault(p => p.Name == context.CurrentAttribute) is { } property &&
+                    property.Enums.Any())
+                {
+                    foreach (var @enum in property.Enums)
+                    {
+                        m_compList.Add(new Completion4(@enum, @enum, @enum, KnownMonikers.Enumeration));
+                    }
+                }
+                break;
             }
         }
 
-        completionSets.Insert(0, new CompletionSet(
-            "SilkyUI",
-            "SilkyUI CompletionSet",
-            FindTokenSpanAtPosition(session.GetTriggerPoint(m_textBuffer), session),
-            m_compList,
-            null));
+        // 如果有补全项才添加到补全集合
+        if (m_compList.Any())
+        {
+            completionSets.Insert(0, new CompletionSet(
+                "SilkyUI",
+                "SilkyUI CompletionSet",
+                FindTokenSpanAtPosition(session.GetTriggerPoint(m_textBuffer), session),
+                m_compList,
+                null));
+        }
 
         return;
     }
@@ -132,6 +200,111 @@ internal class TestCompletionSource : ICompletionSource
         }
 
         return snapshot.CreateTrackingSpan(Span.FromBounds(start, end), SpanTrackingMode.EdgeInclusive);
+    }
+
+    /// <summary>
+    /// 分析当前光标位置的 XML 上下文
+    /// </summary>
+    private XmlContext AnalyzeXmlContext(ICompletionSession session)
+    {
+        var context = new XmlContext();
+        var currentPoint = session.TextView.Caret.Position.BufferPosition;
+        var snapshot = currentPoint.Snapshot;
+        var position = currentPoint.Position;
+
+        if (position == 0)
+            return context;
+
+        // 获取当前行的文本
+        var line = snapshot.GetLineFromPosition(position);
+        var lineText = line.GetText();
+        var linePosition = position - line.Start.Position;
+
+        // 查找当前位置之前最近的 '<'
+        int tagStart = -1;
+        for (int i = linePosition - 1; i >= 0; i--)
+        {
+            if (lineText[i] == '<')
+            {
+                tagStart = i;
+                break;
+            }
+            // 如果遇到 '>' 说明不在标签内
+            if (lineText[i] == '>')
+                return context;
+        }
+
+        if (tagStart == -1)
+            return context;
+
+        // 提取标签内容（从 '<' 到当前位置）
+        var tagContent = lineText.Substring(tagStart, linePosition - tagStart);
+
+        // 检查是否在属性值的引号内
+        int quoteCount = tagContent.Count(c => c == '"');
+        if (quoteCount % 2 == 1)
+        {
+            // 奇数个引号，说明在属性值内部
+            context.ContextType = XmlContextType.AttributeValue;
+
+            // 提取当前属性名：查找最近的 ' ' 或 '=' 前面的单词
+            int eqPos = tagContent.LastIndexOf('=');
+            if (eqPos > 0)
+            {
+                // 从等号向前找属性名
+                int attrStart = eqPos - 1;
+                while (attrStart >= 0 && (char.IsLetterOrDigit(tagContent[attrStart]) || tagContent[attrStart] == '.' || tagContent[attrStart] == '_' || tagContent[attrStart] == '-'))
+                {
+                    attrStart--;
+                }
+                attrStart++;
+                context.CurrentAttribute = tagContent.Substring(attrStart, eqPos - attrStart).Trim();
+            }
+
+            // 提取标签名
+            int tagNameEnd = tagContent.IndexOfAny(new[] { ' ', '/', '>' });
+            if (tagNameEnd > 1)
+            {
+                context.CurrentTag = tagContent.Substring(1, tagNameEnd - 1).Trim();
+            }
+
+            return context;
+        }
+
+        // 检查是否在属性名位置（前面有空格，后面可能有等号）
+        if (tagContent.Contains(' '))
+        {
+            // 查找最后一个空格
+            int lastSpace = tagContent.LastIndexOf(' ');
+            if (lastSpace < linePosition - tagStart - 1)
+            {
+                // 检查后面是否有等号
+                string afterSpace = tagContent.Substring(lastSpace + 1);
+                if (!afterSpace.Contains('='))
+                {
+                    context.ContextType = XmlContextType.AttributeName;
+
+                    // 提取标签名
+                    int tagNameEnd = tagContent.IndexOf(' ');
+                    if (tagNameEnd > 1)
+                    {
+                        context.CurrentTag = tagContent.Substring(1, tagNameEnd - 1).Trim();
+                    }
+
+                    return context;
+                }
+            }
+        }
+
+        // 否则是标签名位置
+        context.ContextType = XmlContextType.TagName;
+        int nameEnd = tagContent.IndexOfAny([' ', '/', '>']);
+        if (nameEnd > 1)
+        {
+            context.CurrentTag = tagContent.Substring(1, nameEnd - 1).Trim();
+        }
+
+        return context;
     }
 
     private bool m_isDisposed;

@@ -52,35 +52,47 @@ internal class AttributeClassScanner
     }
 
     /// <summary>
-    /// 获取类中所有公开的可读写属性
+    /// 获取类中所有公开的可读写属性（包含继承自父类的属性）
     /// </summary>
     /// <param name="cls">类符号</param>
     /// <returns>属性列表</returns>
     private List<SilkyUIProperty> GetPublicReadWriteProperties(INamedTypeSymbol cls)
     {
-        var properties = new List<SilkyUIProperty>();
+        var propertyDict = new Dictionary<string, SilkyUIProperty>();
+        var currentType = cls;
 
-        // 遍历类的所有公开属性（包含继承的属性）
-        foreach (var property in cls.GetMembers().OfType<IPropertySymbol>()
-                                    .Where(p => p.DeclaredAccessibility == Accessibility.Public &&
-                                                p.GetMethod != null && p.GetMethod.DeclaredAccessibility == Accessibility.Public &&
-                                                p.SetMethod != null && p.SetMethod.DeclaredAccessibility == Accessibility.Public))
+        // 遍历当前类和所有基类，直到 object 类型
+        while (currentType != null && currentType.SpecialType != SpecialType.System_Object)
         {
-            ImmutableArray<string> enumValues = ImmutableArray<string>.Empty;
-
-            // 如果属性类型是枚举，获取所有公开的枚举值
-            if (property.Type.TypeKind == TypeKind.Enum && property.Type is INamedTypeSymbol enumType)
+            // 遍历当前类的所有公开可读写属性
+            foreach (var property in currentType.GetMembers().OfType<IPropertySymbol>()
+                                        .Where(p => p.DeclaredAccessibility == Accessibility.Public &&
+                                                    p.GetMethod != null && p.GetMethod.DeclaredAccessibility == Accessibility.Public &&
+                                                    p.SetMethod != null && p.SetMethod.DeclaredAccessibility == Accessibility.Public))
             {
-                enumValues = [.. enumType.GetMembers()
-                                    .OfType<IFieldSymbol>()
-                                    .Where(f => f.IsStatic && f.IsConst && f.DeclaredAccessibility == Accessibility.Public)
-                                    .Select(f => f.Name)];
+                // 子类属性优先：如果属性名已存在（子类已定义同名属性），跳过父类的
+                if (propertyDict.ContainsKey(property.Name))
+                    continue;
+
+                ImmutableArray<string> enumValues = ImmutableArray<string>.Empty;
+
+                // 如果属性类型是枚举，获取所有公开的枚举值
+                if (property.Type.TypeKind == TypeKind.Enum && property.Type is INamedTypeSymbol enumType)
+                {
+                    enumValues = [.. enumType.GetMembers()
+                                        .OfType<IFieldSymbol>()
+                                        .Where(f => f.IsStatic && f.IsConst && f.DeclaredAccessibility == Accessibility.Public)
+                                        .Select(f => f.Name)];
+                }
+
+                propertyDict[property.Name] = new SilkyUIProperty(property.Name, enumValues);
             }
 
-            properties.Add(new SilkyUIProperty(property.Name, enumValues));
+            // 继续处理父类
+            currentType = currentType.BaseType;
         }
 
-        return properties;
+        return propertyDict.Values.ToList();
     }
 }
 

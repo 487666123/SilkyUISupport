@@ -38,4 +38,12 @@
 		</PackageReference>
 	</ItemGroup>
 
+	<ItemGroup>
+	  <EditorConfigFiles Remove="C:\Users\48766\Documents\VSIX Project\SilkyUISupport\SilkyUISupport\.editorconfig" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <None Include="C:\Users\48766\Documents\VSIX Project\SilkyUISupport\SilkyUISupport\.editorconfig" />
+	</ItemGroup>
+
 </Project>
