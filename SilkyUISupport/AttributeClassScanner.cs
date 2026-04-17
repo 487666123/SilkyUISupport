@@ -74,7 +74,7 @@ internal class AttributeClassScanner
                 if (propertyDict.ContainsKey(property.Name))
                     continue;
 
-                ImmutableArray<string> enumValues = ImmutableArray<string>.Empty;
+                ImmutableArray<string> enumValues = [];
 
                 // 如果属性类型是枚举，获取所有公开的枚举值
                 if (property.Type.TypeKind == TypeKind.Enum && property.Type is INamedTypeSymbol enumType)
@@ -92,7 +92,7 @@ internal class AttributeClassScanner
             currentType = currentType.BaseType;
         }
 
-        return propertyDict.Values.ToList();
+        return [.. propertyDict.Values];
     }
 }
 

@@ -157,7 +157,7 @@ internal static class XmlContextAnalyzer
             }
 
             // 提取标签名
-            int tagNameEnd = tagContent.IndexOfAny(new char[] { ' ', '/', '>' });
+            int tagNameEnd = tagContent.IndexOfAny([' ', '/', '>']);
             if (tagNameEnd > 1)
             {
                 context.CurrentTag = tagContent.Substring(1, tagNameEnd - 1).Trim();
@@ -255,7 +255,7 @@ internal static class XmlContextAnalyzer
 
         // 否则是标签名位置
         context.ContextType = XmlContextType.TagName;
-        int nameEnd = tagContent.IndexOfAny(new char[] { ' ', '/', '>' });
+        int nameEnd = tagContent.IndexOfAny([' ', '/', '>']);
         if (nameEnd == -1) nameEnd = tagContent.Length;
 
         if (tagContent.Length <= nameEnd && nameEnd > 1)
