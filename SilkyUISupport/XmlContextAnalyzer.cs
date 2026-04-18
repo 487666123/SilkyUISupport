@@ -98,7 +98,7 @@ internal static class XmlContextAnalyzer
             currentScanLineNumber--;
         }
 
-        FoundTagStart:
+    FoundTagStart:
         if (tagStartCharPosition == -1)
             return context;
 
