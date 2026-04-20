@@ -4,6 +4,7 @@ using System.ComponentModel.Composition;
 using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.VisualStudio.LanguageServices;
+using Microsoft.VisualStudio.Shell;
 
 namespace SilkyUISupport;
 
@@ -13,23 +14,19 @@ namespace SilkyUISupport;
 [Export(typeof(AttributeClassScanner))]
 internal class AttributeClassScanner
 {
-    [Import]
-    public VisualStudioWorkspace Workspace { get; set; }
-
-    public List<SilkyUIClass> GetClassesWithAttribute(string targetAttributeName)
+    public List<SilkyUIClass> GetClassesWithAttribute(VisualStudioWorkspace workspace, string targetAttributeName)
     {
         var suiClass = new List<SilkyUIClass>();
-        if (Workspace?.CurrentSolution == null) return suiClass;
+        if (workspace?.CurrentSolution == null) return suiClass;
 
         // 遍历解决方案中的所有C#项目
-        foreach (var project in Workspace.CurrentSolution.Projects.Where(p => p.Language == LanguageNames.CSharp))
+        foreach (var project in workspace.CurrentSolution.Projects.Where(p => p.Language == LanguageNames.CSharp))
         {
             // 获取项目的编译结果（包含所有符号信息）
-            if (project.GetCompilationAsync().Result is not { } compilation) continue;
+            if (ThreadHelper.JoinableTaskFactory.Run(() => project.GetCompilationAsync()) is not { } compilation) continue;
 
             // 先检查项目是否引用了SilkyUI：尝试查找目标Attribute类型
-            var attributeType = compilation.GetTypeByMetadataName(targetAttributeName);
-            if (attributeType == null) continue;
+            if (compilation.GetTypeByMetadataName(targetAttributeName) is not { } attributeType) continue;
 
             // 查找所有类类型的符号
             var classes = compilation.GetSymbolsWithName(_ => true, SymbolFilter.Type).OfType<INamedTypeSymbol>()

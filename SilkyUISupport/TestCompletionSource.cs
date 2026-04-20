@@ -5,7 +5,6 @@ using System.Linq;
 using Microsoft.VisualStudio.Imaging;
 using Microsoft.VisualStudio.Language.Intellisense;
 using Microsoft.VisualStudio.Text;
-using Microsoft.VisualStudio.Text.Operations;
 using Microsoft.VisualStudio.Utilities;
 
 namespace SilkyUISupport;
@@ -28,13 +27,7 @@ internal class TestCompletionSourceProvider : ICompletionSourceProvider
     internal static readonly FileExtensionToContentTypeDefinition SuiXmlFileExtension = null!;
 
     [Import]
-    public ITextStructureNavigatorSelectorService NavigatorService { get; set; }
-
-    [Import]
     public IGlyphService GlyphService { get; set; }
-
-    [Import]
-    public AttributeClassScanner ClassScanner { get; set; }
 
     [Import]
     public SilkyUIMetadataService MetadataService { get; set; } = null!;
@@ -48,20 +41,13 @@ internal class TestCompletionSourceProvider : ICompletionSourceProvider
  * 当补全弹窗要显示内容时，会调用这个类的方法来获取补全列表
  * 你可以在这里自定义你想要显示的补全项，比如关键字、自定义代码片段等
  */
-internal class TestCompletionSource : ICompletionSource
+internal class TestCompletionSource(TestCompletionSourceProvider sourceProvider, ITextBuffer textBuffer, SilkyUIMetadataService metadataService) : ICompletionSource
 {
-    private readonly TestCompletionSourceProvider m_sourceProvider;
-    private readonly ITextBuffer m_textBuffer; // 当前的文本缓冲区，也就是编辑器里的内容
-    private readonly SilkyUIMetadataService m_metadataService;
+    private readonly TestCompletionSourceProvider m_sourceProvider = sourceProvider;
+    private readonly ITextBuffer m_textBuffer = textBuffer;
+    private readonly SilkyUIMetadataService m_metadataService = metadataService;
 
     private readonly List<Completion> m_compList = [];
-
-    public TestCompletionSource(TestCompletionSourceProvider sourceProvider, ITextBuffer textBuffer, SilkyUIMetadataService metadataService)
-    {
-        m_sourceProvider = sourceProvider;
-        m_textBuffer = textBuffer;
-        m_metadataService = metadataService;
-    }
 
     /*
      * 这个方法是ICompletionSource接口的核心实现
@@ -69,10 +55,6 @@ internal class TestCompletionSource : ICompletionSource
      */
     void ICompletionSource.AugmentCompletionSession(ICompletionSession session, IList<CompletionSet> completionSets)
     {
-        var classIcon = m_sourceProvider.GlyphService.GetGlyph(StandardGlyphGroup.GlyphGroupClass, StandardGlyphItem.GlyphItemPublic);
-        var propertyIcon = m_sourceProvider.GlyphService.GetGlyph(StandardGlyphGroup.GlyphGroupProperty, StandardGlyphItem.GlyphItemPublic);
-        var enumIcon = m_sourceProvider.GlyphService.GetGlyph(StandardGlyphGroup.GlyphGroupEnum, StandardGlyphItem.GlyphItemPublic);
-
         m_compList.Clear();
 
         // 分析当前上下文

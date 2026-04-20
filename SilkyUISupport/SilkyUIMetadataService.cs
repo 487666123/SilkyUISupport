@@ -1,6 +1,10 @@
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.CodeAnalysis;
+using Microsoft.VisualStudio.LanguageServices;
 
 namespace SilkyUISupport;
 
@@ -8,30 +12,61 @@ namespace SilkyUISupport;
 /// SilkyUI 元数据查询服务（公共服务，供所有功能使用）
 /// </summary>
 [Export(typeof(SilkyUIMetadataService))]
-internal class SilkyUIMetadataService
+internal class SilkyUIMetadataService : IPartImportsSatisfiedNotification
 {
+    private const string TargetAttributeName = "SilkyUIFramework.Attributes.XmlElementMappingAttribute";
+
     [Import]
     public AttributeClassScanner ClassScanner { get; set; } = null!;
 
-    private const string TargetAttributeName = "SilkyUIFramework.Attributes.XmlElementMappingAttribute";
+    [Import]
+    public VisualStudioWorkspace Workspace { get; set; }
 
-    private List<SilkyUIClass> _cachedClasses;
+    private bool _isDirty = true;
+    private int _isRefreshing;
+
+    private List<SilkyUIClass> _cachedClasses = [];
+
+    public void OnImportsSatisfied()
+    {
+        Workspace.WorkspaceChanged += Workspace_WorkspaceChanged;
+        _ = RefreshLoopAsync();
+    }
+
+    private void Workspace_WorkspaceChanged(object sender, WorkspaceChangeEventArgs e)
+    {
+        _isDirty = true;
+        _ = RefreshLoopAsync();
+    }
+
+    private async Task RefreshLoopAsync()
+    {
+        if (Interlocked.Exchange(ref _isRefreshing, 1) == 1) return;
+
+        try
+        {
+            _isDirty = false;
+            Interlocked.Exchange(ref _cachedClasses,
+                await Task.Run(() => ClassScanner.GetClassesWithAttribute(Workspace, TargetAttributeName)));
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _isRefreshing, 0);
+            if (_isDirty) _ = RefreshLoopAsync();
+        }
+    }
 
     /// <summary>
     /// 获取所有 SilkyUI 类（带缓存）
     /// </summary>
-    public List<SilkyUIClass> GetAllClasses()
-    {
-        return _cachedClasses ??= ClassScanner.GetClassesWithAttribute(TargetAttributeName);
-    }
+    public List<SilkyUIClass> GetAllClasses() => _cachedClasses;
 
     /// <summary>
     /// 根据类名获取 SilkyUI 类
     /// </summary>
     public SilkyUIClass GetClassByName(string className)
     {
-        if (string.IsNullOrEmpty(className))
-            return null;
+        if (string.IsNullOrWhiteSpace(className)) return null;
 
         return GetAllClasses().FirstOrDefault(c => c.Name == className);
     }
@@ -46,13 +81,5 @@ internal class SilkyUIMetadataService
 
         var @class = GetClassByName(className);
         return @class?.Properties.FirstOrDefault(p => p.Name == propertyName);
-    }
-
-    /// <summary>
-    /// 清除缓存（当项目文件变化时调用）
-    /// </summary>
-    public void ClearCache()
-    {
-        _cachedClasses = null;
     }
 }
