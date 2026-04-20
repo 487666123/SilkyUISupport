@@ -35,11 +35,22 @@ internal class AttributeClassScanner
             foreach (var cls in classes)
             {
                 var attrs = cls.GetAttributes().Where(attr => SymbolEqualityComparer.Default.Equals(attr.AttributeClass, attributeType));
+                var sourceLocation = cls.Locations.FirstOrDefault(location => location.IsInSource);
+                var lineSpan = sourceLocation?.GetLineSpan();
+                var sourceFilePath = lineSpan?.Path ?? string.Empty;
+                var sourceLine = lineSpan?.StartLinePosition.Line ?? 0;
+                var sourceColumn = lineSpan?.StartLinePosition.Character ?? 0;
 
                 foreach (var attr in attrs)
                 {
                     var properties = GetPublicReadWriteProperties(cls);
-                    suiClass.Add(new SilkyUIClass([.. properties], attr.ConstructorArguments[0].Value as string, cls.ToDisplayString()));
+                    suiClass.Add(new SilkyUIClass(
+                        [.. properties],
+                        attr.ConstructorArguments[0].Value as string,
+                        cls.ToDisplayString(),
+                        sourceFilePath,
+                        sourceLine,
+                        sourceColumn));
                 }
             }
         }
@@ -72,6 +83,11 @@ internal class AttributeClassScanner
                     continue;
 
                 ImmutableArray<string> enumValues = [];
+                var sourceLocation = property.Locations.FirstOrDefault(location => location.IsInSource);
+                var lineSpan = sourceLocation?.GetLineSpan();
+                var sourceFilePath = lineSpan?.Path ?? string.Empty;
+                var sourceLine = lineSpan?.StartLinePosition.Line ?? 0;
+                var sourceColumn = lineSpan?.StartLinePosition.Character ?? 0;
 
                 // 如果属性类型是枚举，获取所有公开的枚举值
                 if (property.Type.TypeKind == TypeKind.Enum && property.Type is INamedTypeSymbol enumType)
@@ -82,7 +98,14 @@ internal class AttributeClassScanner
                                         .Select(f => f.Name)];
                 }
 
-                propertyDict[property.Name] = new SilkyUIProperty(property.Name, enumValues);
+                propertyDict[property.Name] = new SilkyUIProperty(
+                    property.Name,
+                    property.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
+                    property.ContainingType.ToDisplayString(),
+                    enumValues,
+                    sourceFilePath,
+                    sourceLine,
+                    sourceColumn);
             }
 
             // 继续处理父类
@@ -93,16 +116,36 @@ internal class AttributeClassScanner
     }
 }
 
-public class SilkyUIClass(ImmutableArray<SilkyUIProperty> silkyUIProperties, string name, string fullName)
+public class SilkyUIClass(
+    ImmutableArray<SilkyUIProperty> silkyUIProperties,
+    string name,
+    string fullName,
+    string sourceFilePath,
+    int sourceLine,
+    int sourceColumn)
 {
     public string Name { get; } = name;
     public string FullName { get; } = fullName;
+    public string SourceFilePath { get; } = sourceFilePath;
+    public int SourceLine { get; } = sourceLine;
+    public int SourceColumn { get; } = sourceColumn;
     public ImmutableArray<SilkyUIProperty> Properties { get; } = silkyUIProperties;
 }
 
-public class SilkyUIProperty(string name, ImmutableArray<string> enums)
+public class SilkyUIProperty(
+    string name,
+    string typeName,
+    string declaringTypeName,
+    ImmutableArray<string> enums,
+    string sourceFilePath,
+    int sourceLine,
+    int sourceColumn)
 {
     public string Name { get; } = name;
-
-    public ImmutableArray<string> Enums = enums;
+    public string TypeName { get; } = typeName;
+    public string DeclaringTypeName { get; } = declaringTypeName;
+    public ImmutableArray<string> Enums { get; } = enums;
+    public string SourceFilePath { get; } = sourceFilePath;
+    public int SourceLine { get; } = sourceLine;
+    public int SourceColumn { get; } = sourceColumn;
 }

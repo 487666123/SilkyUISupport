@@ -43,10 +43,5 @@ public sealed class SilkyUIExtensionPackage : AsyncPackage
         await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
     }
 
-    protected override void Dispose(bool disposing)
-    {
-        base.Dispose(disposing);
-    }
-
     #endregion
 }

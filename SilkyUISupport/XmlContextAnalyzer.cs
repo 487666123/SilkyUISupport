@@ -59,8 +59,7 @@ internal static class XmlContextAnalyzer
     {
         var context = new XmlContext();
 
-        if (position == 0 || position >= snapshot.Length)
-            return context;
+        if (position == 0 || position >= snapshot.Length) return context;
 
         // 获取当前行的文本
         var line = snapshot.GetLineFromPosition(position);
@@ -76,17 +75,13 @@ internal static class XmlContextAnalyzer
         while (currentScanLineNumber >= 0 && currentScanLineNumber >= tagStartLine - maxScanLines)
         {
             var currentScanLine = snapshot.GetLineFromLineNumber(currentScanLineNumber);
-            string currentScanText = currentScanLine.GetText();
+            var currentScanText = currentScanLine.GetText();
             int scanEndPosition = (currentScanLineNumber == line.LineNumber) ? linePosition : currentScanText.Length;
 
             // 从后往前查找
             for (int i = scanEndPosition - 1; i >= 0; i--)
             {
-                if (currentScanText[i] == '>')
-                {
-                    // 遇到标签结束符，前面没有有效起始标签了
-                    return context;
-                }
+                if (currentScanText[i] == '>') return context;
                 if (currentScanText[i] == '<')
                 {
                     tagStartLine = currentScanLineNumber;
@@ -99,15 +94,14 @@ internal static class XmlContextAnalyzer
         }
 
     FoundTagStart:
-        if (tagStartCharPosition == -1)
-            return context;
+        if (tagStartCharPosition == -1) return context;
 
         // 拼接从标签起始到光标位置的所有内容（跨多行）
         var tagContentBuilder = new StringBuilder();
-        for (int i = tagStartLine; i <= line.LineNumber; i++)
+        for (var i = tagStartLine; i <= line.LineNumber; i++)
         {
             var currentLine = snapshot.GetLineFromLineNumber(i);
-            string currentLineText = currentLine.GetText();
+            var currentLineText = currentLine.GetText();
 
             if (i == tagStartLine && i == line.LineNumber)
             {
@@ -133,10 +127,10 @@ internal static class XmlContextAnalyzer
             }
         }
 
-        string tagContent = tagContentBuilder.ToString();
+        var tagContent = tagContentBuilder.ToString();
 
         // 检查是否在属性值的引号内
-        int quoteCount = tagContent.Count(c => c == '"');
+        var quoteCount = tagContent.Count(c => c == '"');
         if (quoteCount % 2 == 1)
         {
             // 奇数个引号，说明在属性值内部

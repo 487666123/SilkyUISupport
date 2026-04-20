@@ -103,10 +103,19 @@ internal class TestCompletionSource(TestCompletionSourceProvider sourceProvider,
         // 如果有补全项才添加到补全集合
         if (m_compList.Any())
         {
+            if (completionSets.Count > 0)
+            {
+                foreach (var item in completionSets[0].Completions)
+                {
+                    m_compList.Add(item);
+                }
+                completionSets.RemoveAt(0);
+            }
+
             completionSets.Insert(0, new CompletionSet(
                 "SilkyUI",
-                "SilkyUI CompletionSet",
-                FindTokenSpanAtPosition(session.GetTriggerPoint(m_textBuffer), session),
+                "SilkyUI",
+                FindTokenSpanAtPosition(session),
                 m_compList,
                 null));
         }
@@ -119,7 +128,7 @@ internal class TestCompletionSource(TestCompletionSourceProvider sourceProvider,
      * 作用是：当用户选中补全项时，知道要把编辑器里的哪些文本替换成补全内容
      * 比如用户输入了"add"，这时补全里有"addition"，选中后就会把"add"替换成"addition"
      */
-    private ITrackingSpan FindTokenSpanAtPosition(ITrackingPoint point, ICompletionSession session)
+    private ITrackingSpan FindTokenSpanAtPosition(ICompletionSession session)
     {
         var currentPoint = session.TextView.Caret.Position.BufferPosition;
         var snapshot = currentPoint.Snapshot;

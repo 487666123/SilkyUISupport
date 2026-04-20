@@ -76,10 +76,9 @@ internal class SilkyUIMetadataService : IPartImportsSatisfiedNotification
     /// </summary>
     public SilkyUIProperty GetPropertyByName(string className, string propertyName)
     {
-        if (string.IsNullOrEmpty(className) || string.IsNullOrEmpty(propertyName))
+        if (string.IsNullOrWhiteSpace(className) || string.IsNullOrWhiteSpace(propertyName))
             return null;
 
-        var @class = GetClassByName(className);
-        return @class?.Properties.FirstOrDefault(p => p.Name == propertyName);
+        return GetClassByName(className)?.Properties.FirstOrDefault(p => p.Name == propertyName);
     }
 }
