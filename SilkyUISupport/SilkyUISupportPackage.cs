@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Interop;
 
 namespace SilkyUISupport;
 
@@ -21,6 +22,8 @@ namespace SilkyUISupport;
 /// </remarks>
 [PackageRegistration(UseManagedResourcesOnly = true, AllowsBackgroundLoading = true)]
 [Guid(SilkyUIExtensionPackage.PackageGuidString)]
+[ProvideMenuResource("Menus.ctmenu", 1)]
+[ProvideAutoLoad(UIContextGuids80.SolutionExists, PackageAutoLoadFlags.BackgroundLoad)]
 public sealed class SilkyUIExtensionPackage : AsyncPackage
 {
     /// <summary>
@@ -38,9 +41,7 @@ public sealed class SilkyUIExtensionPackage : AsyncPackage
     /// <returns>表示包初始化异步工作的任务，如果没有工作则返回已完成的任务。不要从此方法返回null。</returns>
     protected override async Task InitializeAsync(CancellationToken cancellationToken, IProgress<ServiceProgressData> progress)
     {
-        // 异步初始化时，此时当前线程可能是后台线程。
-        // 切换到UI线程后，再执行任何需要UI线程的初始化操作。
-        await JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
+        await CreateSilkyUiXmlTemplateCommand.InitializeAsync(this);
     }
 
     #endregion

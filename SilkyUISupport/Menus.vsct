@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommandTable xmlns="http://schemas.microsoft.com/VisualStudio/2005-10-18/CommandTable">
+  <Extern href="stdidcmd.h" />
+  <Extern href="vsshlids.h" />
+
+  <Commands package="guidSilkyUISupportPackage">
+    <Groups>
+      <Group guid="guidSilkyUISupportCmdSet"
+             id="SilkyUiCodeWindowGroup"
+             priority="0x0600">
+        <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_CODEWIN" />
+      </Group>
+    </Groups>
+
+    <Buttons>
+      <Button guid="guidSilkyUISupportCmdSet"
+              id="cmdidCreateSilkyUiXmlTemplate"
+              priority="0x0100"
+              type="Button">
+        <Parent guid="guidSilkyUISupportCmdSet" id="SilkyUiCodeWindowGroup" />
+        <CommandFlag>DynamicVisibility</CommandFlag>
+        <Strings>
+          <ButtonText>创建 SilkyUI XML 初始模板</ButtonText>
+        </Strings>
+      </Button>
+    </Buttons>
+  </Commands>
+
+  <Symbols>
+    <GuidSymbol name="guidSilkyUISupportPackage" value="{03dc73cd-a6cd-4b46-8e3a-86fda434177c}" />
+    <GuidSymbol name="guidSilkyUISupportCmdSet" value="{a11c5b72-0ffb-4d12-9a86-7ad8fdf2c351}">
+      <IDSymbol name="SilkyUiCodeWindowGroup" value="0x1020" />
+      <IDSymbol name="cmdidCreateSilkyUiXmlTemplate" value="0x0100" />
+    </GuidSymbol>
+  </Symbols>
+</CommandTable>

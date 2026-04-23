@@ -18,6 +18,13 @@
 	<ItemGroup>
 		<ProjectCapability Include="CreateVsixContainer" />
 		<Reference Include="PresentationCore" />
+		<Reference Include="PresentationFramework" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<VSCTCompile Include="Menus.vsct">
+			<ResourceName>Menus.ctmenu</ResourceName>
+		</VSCTCompile>
 	</ItemGroup>
 
 	<ItemGroup>
