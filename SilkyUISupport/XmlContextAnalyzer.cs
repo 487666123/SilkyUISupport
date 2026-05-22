@@ -160,88 +160,28 @@ internal static class XmlContextAnalyzer
             return context;
         }
 
-        // 检查是否在属性名位置（前面有空格，后面可能有等号）
+        // 检查是否在属性名位置
         if (tagContent.Contains(' '))
         {
-            // 查找最后一个空格
             int lastSpace = tagContent.LastIndexOf(' ');
             if (lastSpace < tagContent.Length - 1)
             {
-                // 检查后面是否有等号
                 string afterSpace = tagContent.Substring(lastSpace + 1);
+
+                // 输入场景：后面没有等号，说明在属性名位置
                 if (!afterSpace.Contains('='))
                 {
+                    ExtractTagNameFromTagContent(tagContent, context);
                     context.ContextType = XmlContextType.AttributeName;
-
-                    // 提取标签名
-                    int tagNameEnd = tagContent.IndexOf(' ');
-                    if (tagNameEnd > 1)
-                    {
-                        context.CurrentTag = tagContent.Substring(1, tagNameEnd - 1).Trim();
-                    }
-
                     return context;
                 }
-            }
-        }
 
-        // 检查是否在属性名位置（输入场景）
-        if (tagContent.Contains(' '))
-        {
-            // 查找最后一个空格
-            int lastSpace = tagContent.LastIndexOf(' ');
-            if (lastSpace < tagContent.Length - 1)
-            {
-                // 检查后面是否有等号
-                string afterSpace = tagContent.Substring(lastSpace + 1);
-                if (!afterSpace.Contains('='))
+                // 鼠标点击场景：验证最后一段是否是合法的 XML 名称字符
+                if (afterSpace.All(c => char.IsLetterOrDigit(c) || c is '.' or '_' or '-'))
                 {
+                    ExtractTagNameFromTagContent(tagContent, context);
+                    context.CurrentAttribute = afterSpace.Trim();
                     context.ContextType = XmlContextType.AttributeName;
-
-                    // 提取标签名
-                    int tagNameEnd = tagContent.IndexOf(' ');
-                    if (tagNameEnd > 1)
-                    {
-                        context.CurrentTag = tagContent.Substring(1, tagNameEnd - 1).Trim();
-                    }
-
-                    return context;
-                }
-            }
-        }
-
-        // 检查是否在属性名位置（鼠标点击场景）
-        if (tagContent.Contains(' '))
-        {
-            // 查找属性名边界
-            int attrStart = tagContent.LastIndexOf(' ') + 1;
-            int attrEnd = tagContent.Length;
-            if (attrStart < attrEnd)
-            {
-                // 检查属性名是否合法
-                bool isAttributeName = true;
-                for (int i = attrStart; i < attrEnd; i++)
-                {
-                    char c = tagContent[i];
-                    if (!char.IsLetterOrDigit(c) && c != '.' && c != '_' && c != '-')
-                    {
-                        isAttributeName = false;
-                        break;
-                    }
-                }
-
-                if (isAttributeName)
-                {
-                    context.ContextType = XmlContextType.AttributeName;
-                    context.CurrentAttribute = tagContent.Substring(attrStart, attrEnd - attrStart).Trim();
-
-                    // 提取标签名
-                    int tagNameEnd = tagContent.IndexOf(' ');
-                    if (tagNameEnd > 1)
-                    {
-                        context.CurrentTag = tagContent.Substring(1, tagNameEnd - 1).Trim();
-                    }
-
                     return context;
                 }
             }
@@ -249,14 +189,19 @@ internal static class XmlContextAnalyzer
 
         // 否则是标签名位置
         context.ContextType = XmlContextType.TagName;
+        ExtractTagNameFromTagContent(tagContent, context);
+
+        return context;
+    }
+
+    private static void ExtractTagNameFromTagContent(string tagContent, XmlContext context)
+    {
         int nameEnd = tagContent.IndexOfAny([' ', '/', '>']);
         if (nameEnd == -1) nameEnd = tagContent.Length;
 
-        if (tagContent.Length <= nameEnd && nameEnd > 1)
+        if (nameEnd > 1)
         {
             context.CurrentTag = tagContent.Substring(1, nameEnd - 1).Trim();
         }
-
-        return context;
     }
 }

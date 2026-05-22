@@ -12,7 +12,6 @@
 		<GeneratePkgDefFile>true</GeneratePkgDefFile>
 
 		<EmbedInteropTypes>false</EmbedInteropTypes>
-		<Nullable>Disable</Nullable>
 	</PropertyGroup>
 
 	<ItemGroup>

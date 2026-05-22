@@ -9,30 +9,18 @@ using Microsoft.VisualStudio.Utilities;
 
 namespace SilkyUISupport;
 
-[Name("token completion")]
+[Name("SilkyUI XML completion source")]
 [Export(typeof(ICompletionSourceProvider))]
 [ContentType("SilkyUI XML")]
-internal class TestCompletionSourceProvider : ICompletionSourceProvider
+internal class SilkyUICompletionSourceProvider : ICompletionSourceProvider
 {
-    // 定义自定义的SilkyUI XML内容类型，继承自XML，保留XML的所有基础功能
-    [Export]
-    [Name("SilkyUI XML")]
-    [BaseDefinition("xml")]
-    internal static readonly ContentTypeDefinition SilkyUiXmlContentType = null!;
-
-    // 关联.sui.xml文件扩展名到自定义内容类型
-    [Export]
-    [FileExtension(".sui.xml")]
-    [ContentType("SilkyUI XML")]
-    internal static readonly FileExtensionToContentTypeDefinition SuiXmlFileExtension = null!;
-
     [Import]
     public IGlyphService GlyphService { get; set; }
 
     [Import]
     public SilkyUIMetadataService MetadataService { get; set; } = null!;
 
-    ICompletionSource ICompletionSourceProvider.TryCreateCompletionSource(ITextBuffer textBuffer) => new TestCompletionSource(this, textBuffer, MetadataService);
+    ICompletionSource ICompletionSourceProvider.TryCreateCompletionSource(ITextBuffer textBuffer) => new SilkyUICompletionSource(this, textBuffer, MetadataService);
 }
 
 /*
@@ -41,13 +29,53 @@ internal class TestCompletionSourceProvider : ICompletionSourceProvider
  * 当补全弹窗要显示内容时，会调用这个类的方法来获取补全列表
  * 你可以在这里自定义你想要显示的补全项，比如关键字、自定义代码片段等
  */
-internal class TestCompletionSource(TestCompletionSourceProvider sourceProvider, ITextBuffer textBuffer, SilkyUIMetadataService metadataService) : ICompletionSource
+internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourceProvider, ITextBuffer textBuffer, SilkyUIMetadataService metadataService) : ICompletionSource
 {
-    private readonly TestCompletionSourceProvider m_sourceProvider = sourceProvider;
+    private readonly SilkyUICompletionSourceProvider m_sourceProvider = sourceProvider;
     private readonly ITextBuffer m_textBuffer = textBuffer;
     private readonly SilkyUIMetadataService m_metadataService = metadataService;
 
     private readonly List<Completion> m_compList = [];
+
+    /// <summary>从 Body 标签中解析 Class 属性值，查找对应的 UIElementGroup 类。</summary>
+    private SilkyUIElementGroupClass? ResolveBodyClass(ICompletionSession session)
+    {
+        var point = session.TextView.Caret.Position.BufferPosition;
+        var snapshot = point.Snapshot;
+        var text = snapshot.GetText();
+        int pos = point.Position;
+
+        // 从光标向前找 <Body
+        int tagStart = text.LastIndexOf("<Body", pos, StringComparison.OrdinalIgnoreCase);
+        if (tagStart < 0) return null;
+
+        // 取标签起始到光标位置的内容
+        int tagEnd = text.IndexOf('>', tagStart);
+        int searchEnd = tagEnd < 0 ? pos : Math.Min(pos, tagEnd);
+        if (searchEnd <= tagStart) return null;
+
+        var tagSection = text.Substring(tagStart, searchEnd - tagStart);
+
+        // 找 Class="..."
+        int classIdx = tagSection.IndexOf("Class=", StringComparison.OrdinalIgnoreCase);
+        if (classIdx < 0) return null;
+
+        int valStart = classIdx + 6;
+        if (valStart >= tagSection.Length) return null;
+        if (tagSection[valStart] != '"' && tagSection[valStart] != '\'') return null;
+        char quote = tagSection[valStart];
+        valStart++;
+
+        int valEnd = tagSection.IndexOf(quote, valStart);
+        if (valEnd < 0) return null;
+
+        var className = tagSection.Substring(valStart, valEnd - valStart);
+        if (string.IsNullOrWhiteSpace(className)) return null;
+
+        // 在 UIElementGroup 类中按全名查找，再按短名查找
+        return m_metadataService.GetUIClasses().FirstOrDefault(c => c.FullName == className)
+            ?? m_metadataService.GetUIClasses().FirstOrDefault(c => c.Name == className);
+    }
 
     /*
      * 这个方法是ICompletionSource接口的核心实现
@@ -64,9 +92,9 @@ internal class TestCompletionSource(TestCompletionSourceProvider sourceProvider,
         {
             case XmlContextType.TagName:
             {
-                // 标签名位置：只显示类名
-                var allClasses = m_metadataService.GetAllClasses();
-                foreach (var suiClass in allClasses)
+                // 标签名位置：框架根元素 + 映射类名
+                m_compList.Add(new Completion4("Body", "Body", "根元素", KnownMonikers.Class));
+                foreach (var suiClass in m_metadataService.GetAllClasses())
                 {
                     m_compList.Add(new Completion4(suiClass.Name, suiClass.Name, suiClass.FullName, KnownMonikers.Class, suffix: suiClass.FullName));
                 }
@@ -75,6 +103,22 @@ internal class TestCompletionSource(TestCompletionSourceProvider sourceProvider,
             case XmlContextType.AttributeName:
             {
                 // 属性名位置：显示当前标签的所有属性
+                if (context.CurrentTag == "Body")
+                {
+                    m_compList.Add(new Completion4("Class", "Class", "指定 UIElementGroup 子类全名", KnownMonikers.Property));
+
+                    // 从标签中解析 Class 属性值，获取对应类的属性补全
+                    var bodyClass = ResolveBodyClass(session);
+                    if (bodyClass != null)
+                    {
+                        foreach (var property in bodyClass.Properties)
+                        {
+                            m_compList.Add(new Completion4(property.Name, property.Name, property.TypeName, KnownMonikers.Property));
+                        }
+                    }
+                    break;
+                }
+
                 var tagClass = m_metadataService.GetClassByName(context.CurrentTag);
                 if (tagClass != null)
                 {
@@ -87,7 +131,38 @@ internal class TestCompletionSource(TestCompletionSourceProvider sourceProvider,
             }
             case XmlContextType.AttributeValue:
             {
-                // 属性值位置：只显示当前属性的枚举值
+                // Body Class 属性值位置：显示所有 UIElementGroup 子类的全名
+                if (context.CurrentTag == "Body" && context.CurrentAttribute == "Class")
+                {
+                    foreach (var uiClass in m_metadataService.GetUIClasses())
+                    {
+                        // 短名匹配：输入类名缩写时匹配
+                        m_compList.Add(new Completion4(uiClass.Name, uiClass.FullName, uiClass.FullName, KnownMonikers.Class, suffix: uiClass.FullName));
+                        // 全路径匹配：输入命名空间路径时匹配
+                        m_compList.Add(new Completion4(uiClass.FullName, uiClass.FullName, uiClass.Name, KnownMonikers.Class, suffix: uiClass.Name));
+                    }
+                    break;
+                }
+
+                // Body 的其他属性：从 Class 引用的类中查找属性
+                if (context.CurrentTag == "Body")
+                {
+                    var bodyClass = ResolveBodyClass(session);
+                    if (bodyClass != null)
+                    {
+                        var prop = bodyClass.Properties.FirstOrDefault(p => p.Name == context.CurrentAttribute);
+                        if (prop != null && prop.Enums.Any())
+                        {
+                            foreach (var @enum in prop.Enums)
+                            {
+                                m_compList.Add(new Completion4(@enum, @enum, @enum, KnownMonikers.Enumeration));
+                            }
+                        }
+                    }
+                    break;
+                }
+
+                // 其他属性值位置：只显示枚举值
                 var property = m_metadataService.GetPropertyByName(context.CurrentTag, context.CurrentAttribute);
                 if (property != null && property.Enums.Any())
                 {
@@ -171,3 +246,4 @@ internal class TestCompletionSource(TestCompletionSourceProvider sourceProvider,
         }
     }
 }
+

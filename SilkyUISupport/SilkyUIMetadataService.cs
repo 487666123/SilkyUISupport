@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.Linq;
@@ -26,6 +27,7 @@ internal class SilkyUIMetadataService : IPartImportsSatisfiedNotification
     private int _isRefreshing;
 
     private List<SilkyUIClass> _cachedClasses = [];
+    private List<SilkyUIElementGroupClass> _cachedUIClasses = [];
 
     public void OnImportsSatisfied()
     {
@@ -48,6 +50,9 @@ internal class SilkyUIMetadataService : IPartImportsSatisfiedNotification
             _isDirty = false;
             Interlocked.Exchange(ref _cachedClasses,
                 await Task.Run(() => ClassScanner.GetClassesWithAttribute(Workspace, TargetAttributeName)));
+            Interlocked.Exchange(ref _cachedUIClasses,
+                await Task.Run(() => ClassScanner.GetUIElementGroupClasses(Workspace)));
+            Refreshed?.Invoke();
         }
         finally
         {
@@ -60,6 +65,14 @@ internal class SilkyUIMetadataService : IPartImportsSatisfiedNotification
     /// 获取所有 SilkyUI 类（带缓存）
     /// </summary>
     public List<SilkyUIClass> GetAllClasses() => _cachedClasses;
+
+    /// <summary>元数据就绪后触发，供消费者刷新自身状态。</summary>
+    public event Action? Refreshed;
+
+    /// <summary>
+    /// 获取继承自 UIElementGroup 的类（Body Class 补全用）。
+    /// </summary>
+    public List<SilkyUIElementGroupClass> GetUIClasses() => _cachedUIClasses;
 
     /// <summary>
     /// 根据类名获取 SilkyUI 类

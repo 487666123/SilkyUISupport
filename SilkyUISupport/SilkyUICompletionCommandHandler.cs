@@ -13,11 +13,11 @@ using Microsoft.VisualStudio.Utilities;
 
 namespace SilkyUISupport;
 
-[Name("token completion handler")]
+[Name("SilkyUI XML completion handler")]
 [Export(typeof(IVsTextViewCreationListener))]
 [ContentType("SilkyUI XML")]
 [TextViewRole(PredefinedTextViewRoles.Editable)]
-internal class TestCompletionHandlerProvider : IVsTextViewCreationListener
+internal class SilkyUICompletionHandlerProvider : IVsTextViewCreationListener
 {
     [Import]
     internal IVsEditorAdaptersFactoryService AdapterService = null; // 编辑器适配器服务，用于新旧编辑器交互
@@ -35,7 +35,7 @@ internal class TestCompletionHandlerProvider : IVsTextViewCreationListener
 
         // 创建补全命令处理程序的工厂方法
         // 把命令处理程序注册到编辑器的属性中，每个编辑器只创建一个实例
-        textView.Properties.GetOrCreateSingletonProperty(() => new TestCompletionCommandHandler(textViewAdapter, textView, this));
+        textView.Properties.GetOrCreateSingletonProperty(() => new SilkyUICompletionCommandHandler(textViewAdapter, textView, this));
     }
 }
 
@@ -45,16 +45,16 @@ internal class TestCompletionHandlerProvider : IVsTextViewCreationListener
  * IOleCommandTarget是Visual Studio中处理键盘/菜单命令的标准接口
  * 所有的键盘输入都会先经过这个类处理，我们可以在这里拦截需要的按键来控制补全功能
  */
-internal class TestCompletionCommandHandler : IOleCommandTarget
+internal class SilkyUICompletionCommandHandler : IOleCommandTarget
 {
-    private readonly TestCompletionHandlerProvider m_provider; // 上层的提供者实例，用来获取各种服务
+    private readonly SilkyUICompletionHandlerProvider m_provider; // 上层的提供者实例，用来获取各种服务
     private readonly ITextView m_textView; // 当前编辑器实例
 
     private readonly IOleCommandTarget m_nextCommandHandler; // 命令链中的下一个处理程序，我们处理不了的命令要传给它
 
     private ICompletionSession m_session; // 当前的补全会话，相当于补全弹窗的控制器
 
-    internal TestCompletionCommandHandler(IVsTextView textViewAdapter, ITextView textView, TestCompletionHandlerProvider provider)
+    internal SilkyUICompletionCommandHandler(IVsTextView textViewAdapter, ITextView textView, SilkyUICompletionHandlerProvider provider)
     {
         m_textView = textView;
         m_provider = provider;

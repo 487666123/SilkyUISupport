@@ -59,6 +59,53 @@ internal class AttributeClassScanner
         return suiClass;
     }
 
+    private const string UIElementGroupName = "SilkyUIFramework.Elements.UIElementGroup";
+
+    /// <summary>
+    /// 查找继承自 UIElementGroup 的 public 类（Body Class 属性的补全源）。
+    /// </summary>
+    public List<SilkyUIElementGroupClass> GetUIElementGroupClasses(VisualStudioWorkspace workspace)
+    {
+        var result = new List<SilkyUIElementGroupClass>();
+        if (workspace?.CurrentSolution == null) return result;
+
+        foreach (var project in workspace.CurrentSolution.Projects.Where(p => p.Language == LanguageNames.CSharp))
+        {
+            if (ThreadHelper.JoinableTaskFactory.Run(() => project.GetCompilationAsync()) is not { } compilation) continue;
+
+            if (compilation.GetTypeByMetadataName(UIElementGroupName) is not { } uiElementGroupType) continue;
+
+            var classes = compilation.GetSymbolsWithName(_ => true, SymbolFilter.Type).OfType<INamedTypeSymbol>()
+                                    .Where(t => t.TypeKind == TypeKind.Class && t.DeclaredAccessibility == Accessibility.Public);
+
+            foreach (var cls in classes)
+            {
+                if (!InheritsFrom(cls, uiElementGroupType))
+                    continue;
+
+                var properties = GetPublicReadWriteProperties(cls);
+                result.Add(new SilkyUIElementGroupClass(cls.Name, cls.ToDisplayString(), [.. properties]));
+            }
+        }
+
+        // 按全名去重
+        var seen = new HashSet<string>();
+        result.RemoveAll(c => !seen.Add(c.FullName));
+        return result;
+    }
+
+    private static bool InheritsFrom(INamedTypeSymbol type, INamedTypeSymbol baseType)
+    {
+        var current = type.BaseType;
+        while (current != null)
+        {
+            if (SymbolEqualityComparer.Default.Equals(current, baseType))
+                return true;
+            current = current.BaseType;
+        }
+        return false;
+    }
+
     /// <summary>
     /// 获取类中所有公开的可读写属性（包含继承自父类的属性）
     /// </summary>
@@ -114,38 +161,4 @@ internal class AttributeClassScanner
 
         return [.. propertyDict.Values];
     }
-}
-
-public class SilkyUIClass(
-    ImmutableArray<SilkyUIProperty> silkyUIProperties,
-    string name,
-    string fullName,
-    string sourceFilePath,
-    int sourceLine,
-    int sourceColumn)
-{
-    public string Name { get; } = name;
-    public string FullName { get; } = fullName;
-    public string SourceFilePath { get; } = sourceFilePath;
-    public int SourceLine { get; } = sourceLine;
-    public int SourceColumn { get; } = sourceColumn;
-    public ImmutableArray<SilkyUIProperty> Properties { get; } = silkyUIProperties;
-}
-
-public class SilkyUIProperty(
-    string name,
-    string typeName,
-    string declaringTypeName,
-    ImmutableArray<string> enums,
-    string sourceFilePath,
-    int sourceLine,
-    int sourceColumn)
-{
-    public string Name { get; } = name;
-    public string TypeName { get; } = typeName;
-    public string DeclaringTypeName { get; } = declaringTypeName;
-    public ImmutableArray<string> Enums { get; } = enums;
-    public string SourceFilePath { get; } = sourceFilePath;
-    public int SourceLine { get; } = sourceLine;
-    public int SourceColumn { get; } = sourceColumn;
 }
