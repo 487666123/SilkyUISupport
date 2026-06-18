@@ -67,7 +67,7 @@ internal class SilkyUIMetadataService : IPartImportsSatisfiedNotification
     public List<SilkyUIClass> GetAllClasses() => _cachedClasses;
 
     /// <summary>元数据就绪后触发，供消费者刷新自身状态。</summary>
-    public event Action? Refreshed;
+    public event Action Refreshed;
 
     /// <summary>
     /// 获取继承自 UIElementGroup 的类（Body Class 补全用）。

@@ -99,34 +99,18 @@ internal sealed class CreateSilkyUiXmlTemplateCommand
     {
         ThreadHelper.ThrowIfNotOnUIThread();
 
-        if (sender is not OleMenuCommand command)
-            return;
-
-        var isCSharpFile = false;
-
-        try
-        {
-            isCSharpFile = ThreadHelper.JoinableTaskFactory.Run(async () =>
-            {
-                var context = await TryGetActiveCSharpContextAsync(CancellationToken.None).ConfigureAwait(false);
-                return context != null;
-            });
-        }
-        catch
-        {
-            isCSharpFile = false;
-        }
+        if (sender is not OleMenuCommand command) return;
 
         // 右键菜单的上下文判断过严时容易直接“不显示命令”，
         // 这里改为始终显示，仅在不是 C# 文件时禁用。
         command.Supported = true;
         command.Visible = true;
-        command.Enabled = isCSharpFile;
+        command.Enabled = TryGetActiveCSharpContextOnUIThread() != null;
     }
 
     private void Execute(object sender, EventArgs e)
     {
-        ThreadHelper.JoinableTaskFactory.RunAsync(async delegate
+        _package.JoinableTaskFactory.RunAsync(async delegate
         {
             try
             {
@@ -143,7 +127,7 @@ internal sealed class CreateSilkyUiXmlTemplateCommand
                     OLEMSGBUTTON.OLEMSGBUTTON_OK,
                     OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST);
             }
-        }).Task.Forget();
+        }).FileAndForget("SilkyUISupport/CreateSilkyUiXmlTemplateCommand.Execute");
     }
 
     private async Task ExecuteAsync(CancellationToken cancellationToken)
@@ -225,12 +209,16 @@ internal sealed class CreateSilkyUiXmlTemplateCommand
     private async Task<ActiveCSharpContext> TryGetActiveCSharpContextAsync(CancellationToken cancellationToken)
     {
         await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
+        return TryGetActiveCSharpContextOnUIThread();
+    }
 
-        var activeView = default(IVsTextView);
+    private ActiveCSharpContext TryGetActiveCSharpContextOnUIThread()
+    {
+        ThreadHelper.ThrowIfNotOnUIThread();
 
         // 右键打开菜单时，编辑器焦点有时会变化，先取“必须有焦点”的视图，
         // 失败后再回退到普通活动视图。
-        if (ErrorHandler.Failed(_textManager.GetActiveView(1, null, out activeView)) || activeView == null)
+        if (ErrorHandler.Failed(_textManager.GetActiveView(1, null, out IVsTextView activeView)) || activeView == null)
         {
             if (ErrorHandler.Failed(_textManager.GetActiveView(0, null, out activeView)) || activeView == null)
                 return null;
@@ -333,14 +321,14 @@ internal sealed class CreateSilkyUiXmlTemplateCommand
     private static int[] GetCandidatePositions(int position, int upperBoundExclusive)
     {
         if (upperBoundExclusive <= 0)
-            return Array.Empty<int>();
+            return [];
 
         var current = Math.Max(0, Math.Min(position, upperBoundExclusive - 1));
         var previous = Math.Max(0, Math.Min(position - 1, upperBoundExclusive - 1));
 
         return current == previous
-            ? new[] { current }
-            : new[] { current, previous };
+            ? [current]
+            : [current, previous];
     }
 
     private static bool PositionTouchesSpan(RoslynTextSpan span, int position)
@@ -398,35 +386,22 @@ internal sealed class CreateSilkyUiXmlTemplateCommand
     /// <summary>
     /// 创建 XML 模板所需的最小上下文。
     /// </summary>
-    private sealed class CurrentClassContext
+    private sealed class CurrentClassContext(INamedTypeSymbol classSymbol, string sourceFilePath)
     {
-        public CurrentClassContext(INamedTypeSymbol classSymbol, string sourceFilePath)
-        {
-            ClassSymbol = classSymbol;
-            SourceFilePath = sourceFilePath;
-        }
+        public INamedTypeSymbol ClassSymbol { get; } = classSymbol;
 
-        public INamedTypeSymbol ClassSymbol { get; }
-
-        public string SourceFilePath { get; }
+        public string SourceFilePath { get; } = sourceFilePath;
     }
 
     /// <summary>
     /// 当前活动 C# 编辑器及其 Roslyn 文档上下文。
     /// </summary>
-    private sealed class ActiveCSharpContext
+    private sealed class ActiveCSharpContext(IWpfTextView textView, ITextBuffer documentBuffer, Document document)
     {
-        public ActiveCSharpContext(IWpfTextView textView, ITextBuffer documentBuffer, Document document)
-        {
-            TextView = textView;
-            DocumentBuffer = documentBuffer;
-            Document = document;
-        }
+        public IWpfTextView TextView { get; } = textView;
 
-        public IWpfTextView TextView { get; }
+        public ITextBuffer DocumentBuffer { get; } = documentBuffer;
 
-        public ITextBuffer DocumentBuffer { get; }
-
-        public Document Document { get; }
+        public Document Document { get; } = document;
     }
 }

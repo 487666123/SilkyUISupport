@@ -18,7 +18,7 @@ internal class SilkyUICompletionSourceProvider : ICompletionSourceProvider
     public IGlyphService GlyphService { get; set; }
 
     [Import]
-    public SilkyUIMetadataService MetadataService { get; set; } = null!;
+    public SilkyUIMetadataService MetadataService { get; set; } = null;
 
     ICompletionSource ICompletionSourceProvider.TryCreateCompletionSource(ITextBuffer textBuffer) => new SilkyUICompletionSource(this, textBuffer, MetadataService);
 }
@@ -38,7 +38,7 @@ internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourcePro
     private readonly List<Completion> m_compList = [];
 
     /// <summary>从 Body 标签中解析 Class 属性值，查找对应的 UIElementGroup 类。</summary>
-    private SilkyUIElementGroupClass? ResolveBodyClass(ICompletionSession session)
+    private SilkyUIElementGroupClass ResolveBodyClass(ICompletionSession session)
     {
         var point = session.TextView.Caret.Position.BufferPosition;
         var snapshot = point.Snapshot;

@@ -51,13 +51,9 @@ internal sealed class SilkyUIErrorTagger : ITagger<IErrorTag>
 
     private void OnMetadataRefreshed()
     {
-        _ = ThreadHelper.JoinableTaskFactory.RunAsync(async () =>
-        {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-            var snapshot = _buffer.CurrentSnapshot;
-            TagsChanged?.Invoke(this, new SnapshotSpanEventArgs(
-                new SnapshotSpan(snapshot, 0, snapshot.Length)));
-        });
+        var snapshot = _buffer.CurrentSnapshot;
+        TagsChanged?.Invoke(this, new SnapshotSpanEventArgs(
+            new SnapshotSpan(snapshot, 0, snapshot.Length)));
     }
 
     public IEnumerable<ITagSpan<IErrorTag>> GetTags(NormalizedSnapshotSpanCollection spans)
@@ -155,7 +151,7 @@ internal sealed class SilkyUIErrorTagger : ITagger<IErrorTag>
 
     private static IEnumerable<TagSpan<IErrorTag>> ParseAndValidateAttributes(
         string section, int offset, ITextSnapshot snapshot,
-        string tagName, SilkyUIClass? suiClass, SilkyUIMetadataService metadata)
+        string tagName, SilkyUIClass suiClass, SilkyUIMetadataService metadata)
     {
         var seen = new HashSet<string>();
         int i = 0;
@@ -179,7 +175,7 @@ internal sealed class SilkyUIErrorTagger : ITagger<IErrorTag>
             while (i < section.Length && char.IsWhiteSpace(section[i])) i++;
             bool hasEquals = i < section.Length && section[i] == '=';
             int valStart = -1, valLength = -1;
-            string? valStr = null;
+            var valStr = string.Empty;
 
             if (hasEquals)
             {
