@@ -59,18 +59,18 @@ internal sealed class SilkyUIQuickInfoSource(ITextBuffer textBuffer, SilkyUIMeta
 
     private static ContainerElement BuildElementContent(SilkyUISymbolResolution resolution)
     {
-        var silkyUiClass = resolution.SilkyUiClass;
+        var xmlMappingClass = resolution.SilkyUiClass;
         var lines = new List<object>
         {
-            ClassifiedTextElement.CreatePlainText($"元素: <{silkyUiClass.Name}>"),
-            ClassifiedTextElement.CreatePlainText($"类型: {silkyUiClass.FullName}"),
-            ClassifiedTextElement.CreatePlainText($"属性数: {silkyUiClass.Properties.Length}")
+            ClassifiedTextElement.CreatePlainText($"元素: <{xmlMappingClass.Alias}>"),
+            ClassifiedTextElement.CreatePlainText($"类型: {xmlMappingClass.Class.ToDisplayString()}"),
+            ClassifiedTextElement.CreatePlainText($"属性数: {xmlMappingClass.Properties.Length}")
         };
 
-        if (silkyUiClass.Properties.Length > 0)
+        if (xmlMappingClass.Properties.Length > 0)
         {
-            var propertyPreview = string.Join(", ", silkyUiClass.Properties.Take(8).Select(property => property.Name));
-            if (silkyUiClass.Properties.Length > 8)
+            var propertyPreview = string.Join(", ", xmlMappingClass.Properties.Take(8).Select(property => property.Property.Name));
+            if (xmlMappingClass.Properties.Length > 8)
                 propertyPreview += ", ...";
 
             lines.Add(ClassifiedTextElement.CreatePlainText($"可用属性: {propertyPreview}"));
@@ -84,9 +84,9 @@ internal sealed class SilkyUIQuickInfoSource(ITextBuffer textBuffer, SilkyUIMeta
         var property = resolution.SilkyUiProperty;
         var lines = new List<object>
         {
-            ClassifiedTextElement.CreatePlainText($"属性: {resolution.CurrentTag}.{property.Name}"),
-            ClassifiedTextElement.CreatePlainText($"声明类型: {property.DeclaringTypeName}"),
-            ClassifiedTextElement.CreatePlainText($"属性类型: {property.TypeName}")
+            ClassifiedTextElement.CreatePlainText($"属性: {resolution.CurrentTag}.{property.Property.Name}"),
+            ClassifiedTextElement.CreatePlainText($"声明类型: {property.Property.ContainingType.ToDisplayString()}"),
+            ClassifiedTextElement.CreatePlainText($"属性类型: {property.Property.Type.ToDisplayString()}")
         };
 
         if (property.Enums.Length > 0)

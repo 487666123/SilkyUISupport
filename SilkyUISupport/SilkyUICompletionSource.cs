@@ -73,8 +73,8 @@ internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourcePro
         if (string.IsNullOrWhiteSpace(className)) return null;
 
         // 在 UIElementGroup 类中按全名查找，再按短名查找
-        return m_metadataService.GetUIClasses().FirstOrDefault(c => c.FullName == className)
-            ?? m_metadataService.GetUIClasses().FirstOrDefault(c => c.Name == className);
+        return m_metadataService.GetAllGroupClasses().FirstOrDefault(c => c.FullName == className)
+            ?? m_metadataService.GetAllGroupClasses().FirstOrDefault(c => c.Name == className);
     }
 
     /*
@@ -94,9 +94,15 @@ internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourcePro
             {
                 // 标签名位置：框架根元素 + 映射类名
                 m_compList.Add(new Completion4("Body", "Body", "根元素", KnownMonikers.Class));
-                foreach (var suiClass in m_metadataService.GetAllClasses())
+
+                foreach (var xmlMappingClass in m_metadataService.GetAllClasses())
                 {
-                    m_compList.Add(new Completion4(suiClass.Name, suiClass.Name, suiClass.FullName, KnownMonikers.Class, suffix: suiClass.FullName));
+                    m_compList.Add(new Completion4(
+                        xmlMappingClass.Alias,
+                        xmlMappingClass.Alias,
+                        xmlMappingClass.Class.ToDisplayString(),
+                        KnownMonikers.Class,
+                        suffix: xmlMappingClass.Class.ToDisplayString()));
                 }
                 break;
             }
@@ -108,12 +114,18 @@ internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourcePro
                     m_compList.Add(new Completion4("Class", "Class", "指定 UIElementGroup 子类全名", KnownMonikers.Property));
 
                     // 从标签中解析 Class 属性值，获取对应类的属性补全
-                    var bodyClass = ResolveBodyClass(session);
-                    if (bodyClass != null)
+                    if (ResolveBodyClass(session) is { } bodyClass)
                     {
                         foreach (var property in bodyClass.Properties)
                         {
-                            m_compList.Add(new Completion4(property.Name, property.Name, property.TypeName, KnownMonikers.Property));
+                            var propertyName = property.Property.Name;
+                            var propertyTypeName = property.Property.Type.ToDisplayString();
+                            m_compList.Add(new Completion4(
+                                propertyName,
+                                propertyName,
+                                propertyTypeName,
+                                KnownMonikers.Property,
+                                suffix: propertyTypeName));
                         }
                     }
                     break;
@@ -124,7 +136,14 @@ internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourcePro
                 {
                     foreach (var property in tagClass.Properties)
                     {
-                        m_compList.Add(new Completion4(property.Name, property.Name, property.Name, KnownMonikers.Property));
+                        var propertyName = property.Property.Name;
+                        var propertyTypeName = property.Property.Type.ToDisplayString();
+                        m_compList.Add(new Completion4(
+                            propertyName,
+                            propertyName,
+                            propertyTypeName,
+                            KnownMonikers.Property,
+                            suffix: propertyTypeName));
                     }
                 }
                 break;
@@ -134,31 +153,33 @@ internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourcePro
                 // Body Class 属性值位置：显示所有 UIElementGroup 子类的全名
                 if (context.CurrentTag == "Body" && context.CurrentAttribute == "Class")
                 {
-                    foreach (var uiClass in m_metadataService.GetUIClasses())
+                    if (context.CurrentAttribute == "Class")
                     {
-                        // 短名匹配：输入类名缩写时匹配
-                        m_compList.Add(new Completion4(uiClass.Name, uiClass.FullName, uiClass.FullName, KnownMonikers.Class, suffix: uiClass.FullName));
-                        // 全路径匹配：输入命名空间路径时匹配
-                        m_compList.Add(new Completion4(uiClass.FullName, uiClass.FullName, uiClass.Name, KnownMonikers.Class, suffix: uiClass.Name));
-                    }
-                    break;
-                }
-
-                // Body 的其他属性：从 Class 引用的类中查找属性
-                if (context.CurrentTag == "Body")
-                {
-                    var bodyClass = ResolveBodyClass(session);
-                    if (bodyClass != null)
-                    {
-                        var prop = bodyClass.Properties.FirstOrDefault(p => p.Name == context.CurrentAttribute);
-                        if (prop != null && prop.Enums.Any())
+                        foreach (var uiClass in m_metadataService.GetAllGroupClasses())
                         {
-                            foreach (var @enum in prop.Enums)
+                            m_compList.Add(new Completion4(
+                                uiClass.Name,
+                                uiClass.FullName,
+                                uiClass.FullName,
+                                KnownMonikers.Class,
+                                suffix: uiClass.FullName));
+                        }
+                    }
+                    else
+                    {
+                        if (ResolveBodyClass(session) is { } bodyClass)
+                        {
+                            var prop = bodyClass.Properties.FirstOrDefault(p => p.Property.Name == context.CurrentAttribute);
+                            if (prop != null && prop.Enums.Any())
                             {
-                                m_compList.Add(new Completion4(@enum, @enum, @enum, KnownMonikers.Enumeration));
+                                foreach (var @enum in prop.Enums)
+                                {
+                                    m_compList.Add(new Completion4(@enum, @enum, @enum, KnownMonikers.Enumeration));
+                                }
                             }
                         }
                     }
+
                     break;
                 }
 
@@ -187,12 +208,11 @@ internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourcePro
                 completionSets.RemoveAt(0);
             }
 
-            completionSets.Insert(0, new CompletionSet(
+            completionSets.Insert(0, new SilkyUICompletionSet(
                 "SilkyUI",
                 "SilkyUI",
                 FindTokenSpanAtPosition(session),
-                m_compList,
-                null));
+                m_compList));
         }
 
         return;

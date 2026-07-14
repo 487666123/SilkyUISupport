@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.ComponentModel.Composition;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.VisualStudio.LanguageServices;
+using Microsoft.VisualStudio.Shell;
 
 namespace SilkyUISupport;
 
@@ -15,73 +17,43 @@ namespace SilkyUISupport;
 [Export(typeof(SilkyUIMetadataService))]
 internal class SilkyUIMetadataService : IPartImportsSatisfiedNotification
 {
-    private const string TargetAttributeName = "SilkyUIFramework.Attributes.XmlElementMappingAttribute";
+    public static string XmlElementMappingAttributeGlobalName { get; } = "SilkyUIFramework.Attributes.XmlElementMappingAttribute";
+
+    public static string RefreshFaultEventName { get; } = "SilkyUISupport/SilkyUIMetadataService.Refresh";
 
     [Import]
-    public AttributeClassScanner ClassScanner { get; set; } = null!;
+    public AttributeClassScanner ClassScanner { get; set; } = null;
 
     [Import]
     public VisualStudioWorkspace Workspace { get; set; }
 
+    /// <summary>元数据就绪后触发，供消费者刷新自身状态。</summary>
+    public event Action Refreshed;
+
     private bool _isDirty = true;
     private int _isRefreshing;
 
-    private List<SilkyUIClass> _cachedClasses = [];
+    private List<XmlMappingClass> _cachedClasses = [];
     private List<SilkyUIElementGroupClass> _cachedUIClasses = [];
-
-    public void OnImportsSatisfied()
-    {
-        Workspace.WorkspaceChanged += Workspace_WorkspaceChanged;
-        _ = RefreshLoopAsync();
-    }
-
-    private void Workspace_WorkspaceChanged(object sender, WorkspaceChangeEventArgs e)
-    {
-        _isDirty = true;
-        _ = RefreshLoopAsync();
-    }
-
-    private async Task RefreshLoopAsync()
-    {
-        if (Interlocked.Exchange(ref _isRefreshing, 1) == 1) return;
-
-        try
-        {
-            _isDirty = false;
-            Interlocked.Exchange(ref _cachedClasses,
-                await Task.Run(() => ClassScanner.GetClassesWithAttribute(Workspace, TargetAttributeName)));
-            Interlocked.Exchange(ref _cachedUIClasses,
-                await Task.Run(() => ClassScanner.GetUIElementGroupClasses(Workspace)));
-            Refreshed?.Invoke();
-        }
-        finally
-        {
-            Interlocked.Exchange(ref _isRefreshing, 0);
-            if (_isDirty) _ = RefreshLoopAsync();
-        }
-    }
 
     /// <summary>
     /// 获取所有 SilkyUI 类（带缓存）
     /// </summary>
-    public List<SilkyUIClass> GetAllClasses() => _cachedClasses;
-
-    /// <summary>元数据就绪后触发，供消费者刷新自身状态。</summary>
-    public event Action Refreshed;
+    public ImmutableList<XmlMappingClass> GetAllClasses() => [.. _cachedClasses];
 
     /// <summary>
     /// 获取继承自 UIElementGroup 的类（Body Class 补全用）。
     /// </summary>
-    public List<SilkyUIElementGroupClass> GetUIClasses() => _cachedUIClasses;
+    public ImmutableList<SilkyUIElementGroupClass> GetAllGroupClasses() => [.. _cachedUIClasses];
 
     /// <summary>
     /// 根据类名获取 SilkyUI 类
     /// </summary>
-    public SilkyUIClass GetClassByName(string className)
+    public XmlMappingClass GetClassByName(string className)
     {
         if (string.IsNullOrWhiteSpace(className)) return null;
 
-        return GetAllClasses().FirstOrDefault(c => c.Name == className);
+        return GetAllClasses().FirstOrDefault(c => c.Alias == className);
     }
 
     /// <summary>
@@ -89,9 +61,48 @@ internal class SilkyUIMetadataService : IPartImportsSatisfiedNotification
     /// </summary>
     public SilkyUIProperty GetPropertyByName(string className, string propertyName)
     {
-        if (string.IsNullOrWhiteSpace(className) || string.IsNullOrWhiteSpace(propertyName))
-            return null;
+        if (string.IsNullOrWhiteSpace(className) || string.IsNullOrWhiteSpace(propertyName)) return null;
 
-        return GetClassByName(className)?.Properties.FirstOrDefault(p => p.Name == propertyName);
+        return GetClassByName(className)?.Properties.FirstOrDefault(p => p.Property.Name == propertyName);
     }
+
+    #region 刷新任务
+
+    void IPartImportsSatisfiedNotification.OnImportsSatisfied()
+    {
+        Workspace.WorkspaceChanged += OnWorkspaceChanged;
+        RefreshLoopAsync().FileAndForget(RefreshFaultEventName);
+    }
+
+    private void OnWorkspaceChanged(object sender, WorkspaceChangeEventArgs e)
+    {
+        _isDirty = true;
+        RefreshLoopAsync().FileAndForget(RefreshFaultEventName);
+    }
+
+    private async Task RefreshLoopAsync()
+    {
+        // 确保只有一个刷新任务
+        if (Interlocked.Exchange(ref _isRefreshing, 1) == 1) return;
+
+        try
+        {
+            _isDirty = false;
+
+            var classes = await Task.Run(() => ClassScanner.GetClassesWithAttributeAsync(Workspace, XmlElementMappingAttributeGlobalName));
+            Interlocked.Exchange(ref _cachedClasses, classes);
+
+            var groupClasses = await Task.Run(() => ClassScanner.GetUIElementGroupClassesAsync(Workspace));
+            Interlocked.Exchange(ref _cachedUIClasses, groupClasses);
+
+            Refreshed?.Invoke();
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _isRefreshing, 0);
+            if (_isDirty) RefreshLoopAsync().FileAndForget(RefreshFaultEventName);
+        }
+    }
+
+    #endregion
 }

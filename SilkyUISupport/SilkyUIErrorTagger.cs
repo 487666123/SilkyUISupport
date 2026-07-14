@@ -151,7 +151,7 @@ internal sealed class SilkyUIErrorTagger : ITagger<IErrorTag>
 
     private static IEnumerable<TagSpan<IErrorTag>> ParseAndValidateAttributes(
         string section, int offset, ITextSnapshot snapshot,
-        string tagName, SilkyUIClass suiClass, SilkyUIMetadataService metadata)
+        string tagName, XmlMappingClass suiClass, SilkyUIMetadataService metadata)
     {
         var seen = new HashSet<string>();
         int i = 0;
@@ -196,7 +196,7 @@ internal sealed class SilkyUIErrorTagger : ITagger<IErrorTag>
             // Body 的 Class 属性值校验
             if (tagName == "Body" && attrName == "Class" && valStr != null && valStr.Length > 0)
             {
-                if (!metadata.GetUIClasses().Any(c => c.FullName == valStr))
+                if (!metadata.GetAllGroupClasses().Any(c => c.FullName == valStr))
                 {
                     yield return MakeError(snapshot, new Span(offset + valStart, valLength),
                         PredefinedErrorTypeNames.SyntaxError, $"未知类 '{valStr}'");

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.ComponentModel.Composition;
 using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.VisualStudio.LanguageServices;
 using Microsoft.VisualStudio.Shell;
@@ -14,40 +15,47 @@ namespace SilkyUISupport;
 [Export(typeof(AttributeClassScanner))]
 internal class AttributeClassScanner
 {
-    public List<SilkyUIClass> GetClassesWithAttribute(VisualStudioWorkspace workspace, string targetAttributeName)
+    public async Task<List<XmlMappingClass>> GetClassesWithAttributeAsync(VisualStudioWorkspace workspace, string attributeName)
     {
-        var suiClass = new List<SilkyUIClass>();
-        if (workspace?.CurrentSolution == null) return suiClass;
+        var xmlMappingClasses = new List<XmlMappingClass>();
+        if (workspace?.CurrentSolution == null) return xmlMappingClasses;
 
-        // 遍历解决方案中的所有C#项目
-        foreach (var project in workspace.CurrentSolution.Projects.Where(p => p.Language == LanguageNames.CSharp))
+        // 筛选出语言为 C# 的项目
+        foreach (var project in GetCSharpProjects(workspace))
         {
             // 获取项目的编译结果（包含所有符号信息）
-            if (ThreadHelper.JoinableTaskFactory.Run(() => project.GetCompilationAsync()) is not { } compilation) continue;
+            if (await project.GetCompilationAsync() is not { } compilation) continue;
 
-            // 先检查项目是否引用了SilkyUI：尝试查找目标Attribute类型
-            if (compilation.GetTypeByMetadataName(targetAttributeName) is not { } attributeType) continue;
+            // 检查是否存在指定类型
+            if (compilation.GetTypeByMetadataName(attributeName) is not { } xmlMappingAttributeType) continue;
 
-            // 查找所有类类型的符号
-            var classes = compilation.GetSymbolsWithName(_ => true, SymbolFilter.Type).OfType<INamedTypeSymbol>()
-                                    .Where(t => t.TypeKind == TypeKind.Class && t.DeclaredAccessibility == Accessibility.Public);
+            // 找到所有公开类
+            var classes = GetAllPublicClass(compilation);
 
             foreach (var cls in classes)
             {
-                var attrs = cls.GetAttributes().Where(attr => SymbolEqualityComparer.Default.Equals(attr.AttributeClass, attributeType));
+                var attrs = cls.GetAttributes().Where(attr => SymbolEqualityComparer.Default.Equals(attr.AttributeClass, xmlMappingAttributeType));
+
                 var sourceLocation = cls.Locations.FirstOrDefault(location => location.IsInSource);
                 var lineSpan = sourceLocation?.GetLineSpan();
+
                 var sourceFilePath = lineSpan?.Path ?? string.Empty;
                 var sourceLine = lineSpan?.StartLinePosition.Line ?? 0;
                 var sourceColumn = lineSpan?.StartLinePosition.Character ?? 0;
 
+                // 可以有多个别名, 重复别名跳过
+
+                var properties = GetPublicReadWriteProperties(cls).ToImmutableArray();
                 foreach (var attr in attrs)
                 {
-                    var properties = GetPublicReadWriteProperties(cls);
-                    suiClass.Add(new SilkyUIClass(
-                        [.. properties],
-                        attr.ConstructorArguments[0].Value as string,
-                        cls.ToDisplayString(),
+                    if (attr.ConstructorArguments.Length == 0) continue;
+                    var alias = attr.ConstructorArguments[0].Value as string;
+                    if (string.IsNullOrWhiteSpace(alias)) continue;
+
+                    xmlMappingClasses.Add(new XmlMappingClass(
+                        cls,
+                        properties,
+                        alias,
                         sourceFilePath,
                         sourceLine,
                         sourceColumn));
@@ -55,8 +63,15 @@ internal class AttributeClassScanner
             }
         }
 
-        // 按完整类名去重
-        return suiClass;
+        return xmlMappingClasses;
+    }
+
+    private static IEnumerable<INamedTypeSymbol> GetAllPublicClass(Compilation compilation)
+    {
+        return compilation
+            .GetSymbolsWithName(_ => true, SymbolFilter.Type)
+            .OfType<INamedTypeSymbol>()
+            .Where(t => t.TypeKind == TypeKind.Class && t.DeclaredAccessibility == Accessibility.Public);
     }
 
     private const string UIElementGroupName = "SilkyUIFramework.Elements.UIElementGroup";
@@ -64,24 +79,22 @@ internal class AttributeClassScanner
     /// <summary>
     /// 查找继承自 UIElementGroup 的 public 类（Body Class 属性的补全源）。
     /// </summary>
-    public List<SilkyUIElementGroupClass> GetUIElementGroupClasses(VisualStudioWorkspace workspace)
+    public async Task<List<SilkyUIElementGroupClass>> GetUIElementGroupClassesAsync(VisualStudioWorkspace workspace)
     {
         var result = new List<SilkyUIElementGroupClass>();
         if (workspace?.CurrentSolution == null) return result;
 
-        foreach (var project in workspace.CurrentSolution.Projects.Where(p => p.Language == LanguageNames.CSharp))
+        foreach (var project in GetCSharpProjects(workspace))
         {
-            if (ThreadHelper.JoinableTaskFactory.Run(() => project.GetCompilationAsync()) is not { } compilation) continue;
+            if (await project.GetCompilationAsync() is not { } compilation) continue;
 
-            if (compilation.GetTypeByMetadataName(UIElementGroupName) is not { } uiElementGroupType) continue;
+            if (compilation.GetTypeByMetadataName(UIElementGroupName) is not { } elementGroupType) continue;
 
-            var classes = compilation.GetSymbolsWithName(_ => true, SymbolFilter.Type).OfType<INamedTypeSymbol>()
-                                    .Where(t => t.TypeKind == TypeKind.Class && t.DeclaredAccessibility == Accessibility.Public);
+            var classes = GetAllPublicClass(compilation);
 
             foreach (var cls in classes)
             {
-                if (!InheritsFrom(cls, uiElementGroupType))
-                    continue;
+                if (!InheritsFrom(cls, elementGroupType)) continue;
 
                 var properties = GetPublicReadWriteProperties(cls);
                 result.Add(new SilkyUIElementGroupClass(cls.Name, cls.ToDisplayString(), [.. properties]));
@@ -92,6 +105,11 @@ internal class AttributeClassScanner
         var seen = new HashSet<string>();
         result.RemoveAll(c => !seen.Add(c.FullName));
         return result;
+    }
+
+    private static IEnumerable<Project> GetCSharpProjects(VisualStudioWorkspace workspace)
+    {
+        return workspace.CurrentSolution.Projects.Where(p => p.Language == LanguageNames.CSharp);
     }
 
     private static bool InheritsFrom(INamedTypeSymbol type, INamedTypeSymbol baseType)
@@ -146,9 +164,7 @@ internal class AttributeClassScanner
                 }
 
                 propertyDict[property.Name] = new SilkyUIProperty(
-                    property.Name,
-                    property.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat),
-                    property.ContainingType.ToDisplayString(),
+                    property,
                     enumValues,
                     sourceFilePath,
                     sourceLine,

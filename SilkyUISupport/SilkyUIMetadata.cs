@@ -1,45 +1,25 @@
 using System.Collections.Immutable;
+using Microsoft.CodeAnalysis;
 
 namespace SilkyUISupport;
 
-internal class SilkyUIClass(
-    ImmutableArray<SilkyUIProperty> silkyUIProperties,
-    string name,
-    string fullName,
-    string sourceFilePath,
-    int sourceLine,
-    int sourceColumn)
-{
-    public string Name { get; } = name;
-    public string FullName { get; } = fullName;
-    public string SourceFilePath { get; } = sourceFilePath;
-    public int SourceLine { get; } = sourceLine;
-    public int SourceColumn { get; } = sourceColumn;
-    public ImmutableArray<SilkyUIProperty> Properties { get; } = silkyUIProperties;
-}
+internal sealed record class XmlMappingClass(
+    INamedTypeSymbol Class,
+    ImmutableArray<SilkyUIProperty> Properties,
+    string Alias,
+    string SourceFilePath,
+    int SourceLine,
+    int SourceColumn);
 
-internal class SilkyUIProperty(
-    string name,
-    string typeName,
-    string declaringTypeName,
-    ImmutableArray<string> enums,
-    string sourceFilePath,
-    int sourceLine,
-    int sourceColumn)
-{
-    public string Name { get; } = name;
-    public string TypeName { get; } = typeName;
-    public string DeclaringTypeName { get; } = declaringTypeName;
-    public ImmutableArray<string> Enums { get; } = enums;
-    public string SourceFilePath { get; } = sourceFilePath;
-    public int SourceLine { get; } = sourceLine;
-    public int SourceColumn { get; } = sourceColumn;
-}
+internal sealed record class SilkyUIProperty(
+    IPropertySymbol Property,
+    ImmutableArray<string> Enums,
+    string SourceFilePath,
+    int SourceLine,
+    int SourceColumn);
 
 /// <summary>Body Class 属性补全用的轻量模型。</summary>
-internal class SilkyUIElementGroupClass(string name, string fullName, ImmutableArray<SilkyUIProperty> properties)
-{
-    public string Name { get; } = name;
-    public string FullName { get; } = fullName;
-    public ImmutableArray<SilkyUIProperty> Properties { get; } = properties;
-}
+internal sealed record class SilkyUIElementGroupClass(
+    string Name,
+    string FullName,
+    ImmutableArray<SilkyUIProperty> Properties);

@@ -11,7 +11,7 @@ internal enum SilkyUISymbolKind
 internal readonly struct SilkyUISymbolResolution(
     SilkyUISymbolKind kind, Span symbolSpan,
     string symbolName, string currentTag,
-    SilkyUIClass silkyUiClass, SilkyUIProperty silkyUiProperty)
+    XmlMappingClass silkyUiClass, SilkyUIProperty silkyUiProperty)
 {
     public SilkyUISymbolKind Kind { get; } = kind;
 
@@ -21,7 +21,7 @@ internal readonly struct SilkyUISymbolResolution(
 
     public string CurrentTag { get; } = currentTag;
 
-    public SilkyUIClass SilkyUiClass { get; } = silkyUiClass;
+    public XmlMappingClass SilkyUiClass { get; } = silkyUiClass;
 
     public SilkyUIProperty SilkyUiProperty { get; } = silkyUiProperty;
 }
