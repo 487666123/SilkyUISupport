@@ -3,7 +3,10 @@ using System.ComponentModel.Composition;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.VisualStudio.Core.Imaging;
+using Microsoft.VisualStudio.Imaging;
 using Microsoft.VisualStudio.Language.Intellisense;
+using Microsoft.VisualStudio.Language.StandardClassification;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Adornments;
 using Microsoft.VisualStudio.Utilities;
@@ -62,9 +65,12 @@ internal sealed class SilkyUIQuickInfoSource(ITextBuffer textBuffer, SilkyUIMeta
         var xmlMappingClass = resolution.SilkyUiClass;
         var lines = new List<object>
         {
-            ClassifiedTextElement.CreatePlainText($"元素: <{xmlMappingClass.Alias}>"),
-            ClassifiedTextElement.CreatePlainText($"类型: {xmlMappingClass.Class.ToDisplayString()}"),
-            ClassifiedTextElement.CreatePlainText($"属性数: {xmlMappingClass.Properties.Length}")
+            BuildSignatureLine(
+                KnownMonikers.Class,
+                "class",
+                xmlMappingClass.Alias,
+                xmlMappingClass.Class.ToDisplayString()),
+            BuildMetadataLine("属性", xmlMappingClass.Properties.Length.ToString())
         };
 
         if (xmlMappingClass.Properties.Length > 0)
@@ -73,7 +79,7 @@ internal sealed class SilkyUIQuickInfoSource(ITextBuffer textBuffer, SilkyUIMeta
             if (xmlMappingClass.Properties.Length > 8)
                 propertyPreview += ", ...";
 
-            lines.Add(ClassifiedTextElement.CreatePlainText($"可用属性: {propertyPreview}"));
+            lines.Add(BuildMetadataLine("可用属性", propertyPreview));
         }
 
         return new ContainerElement(ContainerElementStyle.Stacked, lines);
@@ -84,9 +90,13 @@ internal sealed class SilkyUIQuickInfoSource(ITextBuffer textBuffer, SilkyUIMeta
         var property = resolution.SilkyUiProperty;
         var lines = new List<object>
         {
-            ClassifiedTextElement.CreatePlainText($"属性: {resolution.CurrentTag}.{property.Property.Name}"),
-            ClassifiedTextElement.CreatePlainText($"声明类型: {property.Property.ContainingType.ToDisplayString()}"),
-            ClassifiedTextElement.CreatePlainText($"属性类型: {property.Property.Type.ToDisplayString()}")
+            BuildSignatureLine(
+                KnownMonikers.Property,
+                property.Property.Type.ToDisplayString(),
+                $"{resolution.CurrentTag}.{property.Property.Name}",
+                string.Empty),
+            BuildMetadataLine("声明类型", property.Property.ContainingType.ToDisplayString()),
+            BuildMetadataLine("属性类型", property.Property.Type.ToDisplayString())
         };
 
         if (property.Enums.Length > 0)
@@ -95,9 +105,47 @@ internal sealed class SilkyUIQuickInfoSource(ITextBuffer textBuffer, SilkyUIMeta
             if (property.Enums.Length > 10)
                 enumPreview += ", ...";
 
-            lines.Add(ClassifiedTextElement.CreatePlainText($"枚举值: {enumPreview}"));
+            lines.Add(BuildMetadataLine("枚举值", enumPreview));
         }
 
         return new ContainerElement(ContainerElementStyle.Stacked, lines);
+    }
+
+    private static ContainerElement BuildSignatureLine(
+        Microsoft.VisualStudio.Imaging.Interop.ImageMoniker moniker,
+        string prefix,
+        string name,
+        string detail)
+    {
+        var runs = new List<ClassifiedTextRun>();
+        if (!string.IsNullOrWhiteSpace(prefix))
+        {
+            runs.Add(new ClassifiedTextRun(PredefinedClassificationTypeNames.Keyword, prefix));
+            runs.Add(new ClassifiedTextRun(PredefinedClassificationTypeNames.WhiteSpace, " "));
+        }
+
+        runs.Add(new ClassifiedTextRun(PredefinedClassificationTypeNames.Identifier, name));
+        if (!string.IsNullOrWhiteSpace(detail))
+        {
+            runs.Add(new ClassifiedTextRun(PredefinedClassificationTypeNames.WhiteSpace, "  "));
+            runs.Add(new ClassifiedTextRun(PredefinedClassificationTypeNames.Text, detail));
+        }
+
+        return new ContainerElement(
+            ContainerElementStyle.Wrapped,
+            new object[]
+            {
+                new ImageElement(new ImageId(moniker.Guid, moniker.Id)),
+                new ClassifiedTextElement(runs)
+            });
+    }
+
+    private static ClassifiedTextElement BuildMetadataLine(string label, string value)
+    {
+        return new ClassifiedTextElement(
+        [
+            new ClassifiedTextRun(PredefinedClassificationTypeNames.Text, $"{label}: "),
+            new ClassifiedTextRun(PredefinedClassificationTypeNames.Identifier, value)
+        ]);
     }
 }
