@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.Linq;
@@ -46,9 +47,7 @@ internal sealed class SilkyUIQuickInfoSource(ITextBuffer textBuffer, SilkyUIMeta
         return Task.FromResult(new QuickInfoItem(applicableTo, BuildContent(resolution)));
     }
 
-    public void Dispose()
-    {
-    }
+    void IDisposable.Dispose() { }
 
     private static object BuildContent(SilkyUISymbolResolution resolution)
     {
@@ -98,6 +97,9 @@ internal sealed class SilkyUIQuickInfoSource(ITextBuffer textBuffer, SilkyUIMeta
             BuildMetadataLine("声明类型", property.Property.ContainingType.ToDisplayString()),
             BuildMetadataLine("属性类型", property.Property.Type.ToDisplayString())
         };
+
+        if (resolution.BodyClass != null)
+            lines.Add(BuildMetadataLine("Body 类型", resolution.BodyClass.FullName));
 
         if (property.Enums.Length > 0)
         {

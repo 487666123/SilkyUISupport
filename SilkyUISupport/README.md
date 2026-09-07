@@ -6,7 +6,7 @@
 
 - 为 `.sui.xml` 文件提供标签名、属性名、枚举属性值补全
 - 根据当前解决方案中的 C# 类型动态生成补全内容
-- 为 `Body` 的 `Class` 属性补全 `UIElementGroup` 子类，并补全对应类的公开属性
+- 为 `Body` 的 `sui:Class` 属性补全 `UIElementGroup` 子类，并补全对应类的公开属性
 - 将鼠标悬停在已映射的元素或属性上时，显示对应的 C# 类型、声明类型和枚举值等信息
 - 支持从 XML 元素名和属性名跳转到对应的 C# 类或属性定义
 - 实时检查未知元素、未知属性、重复属性、非法枚举值和无效的 `Body Class`，并显示错误波浪线
@@ -17,8 +17,8 @@
 
 ```xml
 <?xml version="1.0" encoding="utf-8" ?>
-<!-- Class 填写对应类名 -->
-<Body Class="SilkyUIFramework.UserInterfaces.MouseMenuUI">
+<!-- sui:Class 填写对应 UIElementGroup 类名 -->
+<Body xmlns:sui="https://github.com/487666123/SilkyUIFramework" sui:Class="SilkyUIFramework.UserInterfaces.MouseMenuUI">
 </Body>
 ```
 

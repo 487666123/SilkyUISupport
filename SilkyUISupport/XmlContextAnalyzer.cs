@@ -1,207 +1,72 @@
-using System.Linq;
-using System.Text;
+using System;
 using Microsoft.VisualStudio.Language.Intellisense;
 using Microsoft.VisualStudio.Text;
 
 namespace SilkyUISupport;
 
-/// <summary>
-/// XML 上下文类型
-/// </summary>
-internal enum XmlContextType
-{
-    /// <summary>
-    /// 未知上下文
-    /// </summary>
-    Unknown,
-    /// <summary>
-    /// 标签名位置（<xxx 中的 xxx）
-    /// </summary>
-    TagName,
-    /// <summary>
-    /// 属性名位置（<tag xxx= 中的 xxx）
-    /// </summary>
-    AttributeName,
-    /// <summary>
-    /// 属性值位置（<tag attr="xxx" 中的 xxx）
-    /// </summary>
-    AttributeValue
-}
+internal enum XmlContextType { Unknown, TagName, AttributeName, AttributeValue }
 
-/// <summary>
-/// XML 上下文信息
-/// </summary>
 internal class XmlContext
 {
     public XmlContextType ContextType { get; set; }
     public string CurrentTag { get; set; } = string.Empty;
     public string CurrentAttribute { get; set; } = string.Empty;
+    public int TagStart { get; set; } = -1;
+    public int TagEnd { get; set; } = -1;
+    public SilkyUIXmlTag Tag { get; set; }
 }
 
-/// <summary>
-/// XML 上下文分析器（公共服务，供所有功能使用）
-/// </summary>
 internal static class XmlContextAnalyzer
 {
-    /// <summary>
-    /// 分析当前光标位置的 XML 上下文（补全场景）
-    /// </summary>
     public static XmlContext Analyze(ICompletionSession session)
     {
-        var currentPoint = session.TextView.Caret.Position.BufferPosition;
-        return Analyze(currentPoint.Snapshot, currentPoint.Position);
+        var point = session.TextView.Caret.Position.BufferPosition;
+        return Analyze(point.Snapshot, point.Position);
     }
 
-    /// <summary>
-    /// 分析当前光标位置的 XML 上下文（通用场景）
-    /// </summary>
     public static XmlContext Analyze(ITextSnapshot snapshot, int position)
+        => Analyze(SilkyUIXmlDocument.Get(snapshot), position);
+
+    internal static XmlContext Analyze(string text, int position)
+        => Analyze(new SilkyUIXmlDocument(text), position);
+
+    private static XmlContext Analyze(SilkyUIXmlDocument document, int position)
     {
         var context = new XmlContext();
+        position = Math.Min(position, document.Text.Length);
+        var current = document.GetTagAtCaret(position);
+        if (current == null) return context;
 
-        if (position == 0 || position >= snapshot.Length) return context;
-
-        // 获取当前行的文本
-        var line = snapshot.GetLineFromPosition(position);
-        var lineText = line.GetText();
-        var linePosition = position - line.Start.Position;
-
-        // 查找标签起始位置 '<'（支持跨多行，最多向上扫描10行）
-        int tagStartLine = line.LineNumber;
-        int tagStartCharPosition = -1;
-        int currentScanLineNumber = line.LineNumber;
-        const int maxScanLines = 10;
-
-        while (currentScanLineNumber >= 0 && currentScanLineNumber >= tagStartLine - maxScanLines)
+        context.TagStart = current.Start;
+        context.TagEnd = current.IsComplete ? current.ContentEnd : -1;
+        // Complete start tags use all their declarations. An unfinished tag only exposes tokens before the caret.
+        context.Tag = current.IsComplete ? current : SilkyUIXmlSyntax.GetIncompletePrefix(current, position);
+        context.CurrentTag = current.Name;
+        if (position <= current.NameStart + current.Name.Length)
         {
-            var currentScanLine = snapshot.GetLineFromLineNumber(currentScanLineNumber);
-            var currentScanText = currentScanLine.GetText();
-            int scanEndPosition = (currentScanLineNumber == line.LineNumber) ? linePosition : currentScanText.Length;
-
-            // 从后往前查找
-            for (int i = scanEndPosition - 1; i >= 0; i--)
-            {
-                if (currentScanText[i] == '>') return context;
-                if (currentScanText[i] == '<')
-                {
-                    tagStartLine = currentScanLineNumber;
-                    tagStartCharPosition = i;
-                    goto FoundTagStart;
-                }
-            }
-
-            currentScanLineNumber--;
-        }
-
-    FoundTagStart:
-        if (tagStartCharPosition == -1) return context;
-
-        // 拼接从标签起始到光标位置的所有内容（跨多行）
-        var tagContentBuilder = new StringBuilder();
-        for (var i = tagStartLine; i <= line.LineNumber; i++)
-        {
-            var currentLine = snapshot.GetLineFromLineNumber(i);
-            var currentLineText = currentLine.GetText();
-
-            if (i == tagStartLine && i == line.LineNumber)
-            {
-                // 标签和光标在同一行
-                tagContentBuilder.Append(currentLineText.Substring(tagStartCharPosition, linePosition - tagStartCharPosition));
-            }
-            else if (i == tagStartLine)
-            {
-                // 标签起始行：从'<'到行尾
-                tagContentBuilder.Append(currentLineText.Substring(tagStartCharPosition));
-                tagContentBuilder.Append(' '); // 换行换成空格，不影响XML结构分析
-            }
-            else if (i == line.LineNumber)
-            {
-                // 当前行：从行首到光标位置
-                tagContentBuilder.Append(currentLineText.Substring(0, linePosition));
-            }
-            else
-            {
-                // 中间行：全部内容
-                tagContentBuilder.Append(currentLineText);
-                tagContentBuilder.Append(' ');
-            }
-        }
-
-        var tagContent = tagContentBuilder.ToString();
-
-        // 检查是否在属性值的引号内
-        var quoteCount = tagContent.Count(c => c == '"');
-        if (quoteCount % 2 == 1)
-        {
-            // 奇数个引号，说明在属性值内部
-            context.ContextType = XmlContextType.AttributeValue;
-
-            // 提取当前属性名：查找最近的 ' ' 或 '=' 前面的单词
-            int eqPos = tagContent.LastIndexOf('=');
-            if (eqPos > 0)
-            {
-                // 从等号向前找属性名
-                int attrStart = eqPos - 1;
-                while (attrStart >= 0 && (char.IsLetterOrDigit(tagContent[attrStart]) || tagContent[attrStart] == '.' || tagContent[attrStart] == '_' || tagContent[attrStart] == '-'))
-                {
-                    attrStart--;
-                }
-                attrStart++;
-                context.CurrentAttribute = tagContent.Substring(attrStart, eqPos - attrStart).Trim();
-            }
-
-            // 提取标签名
-            int tagNameEnd = tagContent.IndexOfAny([' ', '/', '>']);
-            if (tagNameEnd > 1)
-            {
-                context.CurrentTag = tagContent.Substring(1, tagNameEnd - 1).Trim();
-            }
-
+            context.CurrentTag = current.Name.Substring(0, Math.Max(0, position - current.NameStart));
+            context.ContextType = XmlContextType.TagName;
             return context;
         }
+        if (current.IsClosing) return context;
 
-        // 检查是否在属性名位置
-        if (tagContent.Contains(' '))
+        context.ContextType = XmlContextType.AttributeName;
+        foreach (var attribute in current.Attributes)
         {
-            int lastSpace = tagContent.LastIndexOf(' ');
-            if (lastSpace < tagContent.Length - 1)
+            if (attribute.NameStart > position) break;
+            if (attribute.ValueStart >= 0 && position >= attribute.ValueStart &&
+                position <= attribute.ValueStart + attribute.Value.Length)
             {
-                string afterSpace = tagContent.Substring(lastSpace + 1);
-
-                // 输入场景：后面没有等号，说明在属性名位置
-                if (!afterSpace.Contains('='))
-                {
-                    ExtractTagNameFromTagContent(tagContent, context);
-                    context.ContextType = XmlContextType.AttributeName;
-                    return context;
-                }
-
-                // 鼠标点击场景：验证最后一段是否是合法的 XML 名称字符
-                if (afterSpace.All(c => char.IsLetterOrDigit(c) || c is '.' or '_' or '-'))
-                {
-                    ExtractTagNameFromTagContent(tagContent, context);
-                    context.CurrentAttribute = afterSpace.Trim();
-                    context.ContextType = XmlContextType.AttributeName;
-                    return context;
-                }
+                context.ContextType = XmlContextType.AttributeValue;
+                context.CurrentAttribute = attribute.Name;
+                return context;
+            }
+            if (position >= attribute.NameStart && position <= attribute.NameEnd)
+            {
+                context.CurrentAttribute = attribute.Name.Substring(0, position - attribute.NameStart);
+                return context;
             }
         }
-
-        // 否则是标签名位置
-        context.ContextType = XmlContextType.TagName;
-        ExtractTagNameFromTagContent(tagContent, context);
-
         return context;
-    }
-
-    private static void ExtractTagNameFromTagContent(string tagContent, XmlContext context)
-    {
-        int nameEnd = tagContent.IndexOfAny([' ', '/', '>']);
-        if (nameEnd == -1) nameEnd = tagContent.Length;
-
-        if (nameEnd > 1)
-        {
-            context.CurrentTag = tagContent.Substring(1, nameEnd - 1).Trim();
-        }
     }
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.ComponentModel.Composition;
 using System.Runtime.InteropServices;
 using Microsoft.VisualStudio;
@@ -102,10 +102,9 @@ internal class SilkyUICompletionCommandHandler : IOleCommandTarget
         }
 
         // 处理补全提交操作
-        // 提交字符：回车、Tab、空格、标点符号
-        // 这些字符都应该触发补全项的提交
+        // 冒号属于 XML 名称，不是提交字符；必须先交给编辑器输入。
         if (nCmdID == (uint)VSConstants.VSStd2KCmdID.RETURN || nCmdID == (uint)VSConstants.VSStd2KCmdID.TAB
-            || char.IsWhiteSpace(typedChar) || char.IsPunctuation(typedChar))
+            || char.IsWhiteSpace(typedChar) || (typedChar != ':' && char.IsPunctuation(typedChar)))
         {
             // 检查当前有没有打开的补全弹窗
             if (m_session is { IsDismissed: false })
@@ -123,6 +122,21 @@ internal class SilkyUICompletionCommandHandler : IOleCommandTarget
         // 比如用户输入了字母'a'，先让'a'出现在编辑器中，然后我们再弹出补全
         var retVal = m_nextCommandHandler.Exec(ref pguidCmdGroup, nCmdID, nCmdexecopt, pvaIn, pvaOut);
         var handled = false;
+
+        // 冒号改变普通属性/命名空间属性上下文，重建列表而不是提交旧选项。
+        if (typedChar == ':' && ErrorHandler.Succeeded(retVal))
+        {
+            if (m_session is { IsDismissed: false }) m_session.Dismiss();
+            var context = XmlContextAnalyzer.Analyze(
+                m_textView.Caret.Position.BufferPosition.Snapshot,
+                m_textView.Caret.Position.BufferPosition.Position);
+            if (context.ContextType is XmlContextType.TagName or XmlContextType.AttributeName)
+            {
+                TriggerCompletion();
+                if (m_session is { IsDismissed: false }) m_session.Filter();
+            }
+            return retVal;
+        }
 
         // 处理补全弹出和过滤
         // 触发补全的字符：字母、数字、等号（=）、双引号（"）
@@ -180,7 +194,10 @@ internal class SilkyUICompletionCommandHandler : IOleCommandTarget
 
     private void OnSessionDismissed(object sender, EventArgs e)
     {
-        m_session.Dismissed -= OnSessionDismissed;
-        m_session = null;
+        if (sender is ICompletionSession dismissed)
+        {
+            dismissed.Dismissed -= OnSessionDismissed;
+            if (ReferenceEquals(m_session, dismissed)) m_session = null;
+        }
     }
 }
