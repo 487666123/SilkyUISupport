@@ -98,6 +98,7 @@ internal sealed class SilkyUIXmlDocument
     /// <summary>
     /// 找到指定位置之前最近的开放标签。
     /// 调用方传入当前标签的 Start 时，当前标签不会被当作自己的父标签。
+    /// 结束标签返回与其匹配的开始标签的父元素。
     /// </summary>
     public SilkyUIXmlTag GetParentTag(int position)
     {
@@ -120,6 +121,13 @@ internal sealed class SilkyUIXmlDocument
             {
                 stack.Add(tag);
             }
+        }
+
+        var currentTag = GetTagAtPosition(position);
+        if (currentTag?.IsClosing == true && currentTag.Start == position)
+        {
+            var matchingIndex = stack.FindLastIndex(openTag => openTag.Name == currentTag.Name);
+            return matchingIndex > 0 ? stack[matchingIndex - 1] : null;
         }
 
         return stack.Count > 0 ? stack[stack.Count - 1] : null;

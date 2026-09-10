@@ -37,8 +37,19 @@ internal class SilkyUIMetadataService : IPartImportsSatisfiedNotification
     private List<XmlMappingClass> _cachedClasses = [];
     private List<SilkyUIElementGroupClass> _cachedUIClasses = [];
     private ImmutableList<SilkyUIProperty> _cachedStyleProperties = [];
-    private ImmutableList<SilkyUITargetClass> _cachedTargetClasses = [];
-    private ConcurrentDictionary<string, ImmutableList<SilkyUIProperty>> _targetPropertyCache = new(StringComparer.Ordinal);
+    private TargetMetadataState _targetMetadataState = new([]);
+
+    // 类符号和属性缓存属于同一次刷新，必须一起发布。
+    private sealed class TargetMetadataState
+    {
+        public ImmutableList<SilkyUITargetClass> Classes { get; }
+        public ConcurrentDictionary<string, ImmutableList<SilkyUIProperty>> PropertyCache { get; } = new(StringComparer.Ordinal);
+
+        public TargetMetadataState(ImmutableList<SilkyUITargetClass> classes)
+        {
+            Classes = classes;
+        }
+    }
 
     /// <summary>
     /// 获取所有 SilkyUI 类（带缓存）
@@ -54,17 +65,18 @@ internal class SilkyUIMetadataService : IPartImportsSatisfiedNotification
     public ImmutableList<SilkyUIProperty> GetAllStyleProperties() => _cachedStyleProperties;
 
     /// <summary>获取所有公开类，供 sui:Target 补全使用。</summary>
-    public ImmutableList<SilkyUITargetClass> GetAllTargetClasses() => _cachedTargetClasses;
+    public ImmutableList<SilkyUITargetClass> GetAllTargetClasses() => Volatile.Read(ref _targetMetadataState).Classes;
 
     /// <summary>获取指定公开类及其基类的公开属性。</summary>
     public ImmutableList<SilkyUIProperty> GetTargetProperties(string fullName)
     {
         if (string.IsNullOrWhiteSpace(fullName)) return [];
 
-        var target = _cachedTargetClasses.FirstOrDefault(item => item.FullName == fullName);
+        var state = Volatile.Read(ref _targetMetadataState);
+        var target = state.Classes.FirstOrDefault(item => item.FullName == fullName);
         if (target == null) return [];
 
-        return _targetPropertyCache.GetOrAdd(target.FullName, _ =>
+        return state.PropertyCache.GetOrAdd(target.FullName, _ =>
             [.. ClassScanner.GetPublicReadableProperties(target.Class)]);
     }
 
@@ -129,8 +141,7 @@ internal class SilkyUIMetadataService : IPartImportsSatisfiedNotification
             Interlocked.Exchange(ref _cachedStyleProperties, BuildStyleProperties(classes));
 
             var targetClasses = await Task.Run(() => ClassScanner.GetAllPublicClassesAsync(Workspace));
-            Interlocked.Exchange(ref _cachedTargetClasses, [.. targetClasses]);
-            Interlocked.Exchange(ref _targetPropertyCache, new ConcurrentDictionary<string, ImmutableList<SilkyUIProperty>>(StringComparer.Ordinal));
+            Interlocked.Exchange(ref _targetMetadataState, new TargetMetadataState([.. targetClasses]));
 
             var groupClasses = await Task.Run(() => ClassScanner.GetUIElementGroupClassesAsync(Workspace));
             Interlocked.Exchange(ref _cachedUIClasses, groupClasses);

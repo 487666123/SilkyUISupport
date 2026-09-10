@@ -270,6 +270,8 @@ internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourcePro
     private static void AddMemberPropertyCompletions(
         ICollection<Completion> completions, IEnumerable<SilkyUIProperty> properties)
     {
+        if (properties == null) return;
+
         foreach (var property in properties)
         {
             // M.* 展开现有引用对象；父属性只需可读，不要求 Setter。
@@ -348,10 +350,10 @@ internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourcePro
                 }
 
                 var document = SilkyUIXmlDocument.Get(snapshot);
-                var properties = tag.Kind == SilkyUIXmlTagKind.Member
+                // Directives do not depend on resolving the element's C# properties.
+                var properties = (tag.Kind == SilkyUIXmlTagKind.Member
                     ? ResolveMemberProperties(document, tag)
-                    : ResolvePropertiesForTag(document, tag);
-                if (properties == null) break;
+                    : ResolvePropertiesForTag(document, tag)) ?? Enumerable.Empty<SilkyUIProperty>();
 
                 var canBind = tag.Kind != SilkyUIXmlTagKind.Member || CanBindMember(document, tag);
                 var attributePrefix = SilkyUIXmlSyntax.GetPrefix(context.CurrentAttribute);

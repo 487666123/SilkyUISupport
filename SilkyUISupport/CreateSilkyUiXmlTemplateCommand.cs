@@ -176,12 +176,22 @@ internal sealed class CreateSilkyUiXmlTemplateCommand
     /// </summary>
     private async Task<CurrentClassContext> TryGetCurrentClassContextAsync(CancellationToken cancellationToken)
     {
-        var activeContext = await TryGetActiveCSharpContextAsync(cancellationToken).ConfigureAwait(false);
+        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
+        var activeContext = TryGetActiveCSharpContextOnUIThread();
         if (activeContext == null)
             return null;
 
-        if (!TryGetInvocationPosition(activeContext.TextView, activeContext.DocumentBuffer, out var triggerPoint))
-            return null;
+        SnapshotPoint triggerPoint;
+        try
+        {
+            if (!TryGetInvocationPosition(activeContext.TextView, activeContext.DocumentBuffer, out triggerPoint))
+                return null;
+        }
+        finally
+        {
+            // 执行时先捕获触发点再清除；菜单状态查询不能消耗它。
+            CSharpContextMenuPositionState.Clear(activeContext.TextView);
+        }
 
         var root = await activeContext.Document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
         var semanticModel = await activeContext.Document.GetSemanticModelAsync(cancellationToken).ConfigureAwait(false);
@@ -206,12 +216,6 @@ internal sealed class CreateSilkyUiXmlTemplateCommand
     /// <summary>
     /// 获取当前正在交互的 C# 编辑器上下文。
     /// </summary>
-    private async Task<ActiveCSharpContext> TryGetActiveCSharpContextAsync(CancellationToken cancellationToken)
-    {
-        await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
-        return TryGetActiveCSharpContextOnUIThread();
-    }
-
     private ActiveCSharpContext TryGetActiveCSharpContextOnUIThread()
     {
         ThreadHelper.ThrowIfNotOnUIThread();
@@ -228,8 +232,10 @@ internal sealed class CreateSilkyUiXmlTemplateCommand
             return null;
 
         var textView = _adapterService.GetWpfTextView(activeView);
-        if (textView == null)
+        if (textView == null || textView.IsClosed)
             return null;
+
+        CSharpContextMenuPositionState.ClearForKeyboardInvocation(textView);
 
         var documentBuffer = textView.TextDataModel.DocumentBuffer;
         if (!_textDocumentFactoryService.TryGetTextDocument(documentBuffer, out var textDocument))
@@ -337,7 +343,7 @@ internal sealed class CreateSilkyUiXmlTemplateCommand
     }
 
     /// <summary>
-    /// 优先使用右键实际点击位置，其次回退到当前选区起点和光标位置。
+    /// 优先使用当前鼠标菜单的点击位置；键盘菜单使用当前选区起点和光标位置。
     /// </summary>
     private static bool TryGetInvocationPosition(IWpfTextView textView, ITextBuffer documentBuffer, out SnapshotPoint point)
     {

@@ -38,7 +38,8 @@ internal sealed class SilkyUIErrorTagger : ITagger<IErrorTag>
         _buffer = buffer;
         _metadataService = metadataService;
         _buffer.Changed += OnBufferChanged;
-        _metadataService.Refreshed += OnMetadataRefreshed;
+        SilkyUIMetadataSubscription.Subscribe(_metadataService, this,
+            static subscriber => subscriber.OnMetadataRefreshed());
     }
 
     public event EventHandler<SnapshotSpanEventArgs> TagsChanged;

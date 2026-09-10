@@ -61,7 +61,8 @@ internal sealed class SilkyUIAttributeClassifier : IClassifier
             PredefinedClassificationTypeNames.String);
 
         _buffer.Changed += OnBufferChanged;
-        _metadataService.Refreshed += OnMetadataRefreshed;
+        SilkyUIMetadataSubscription.Subscribe(_metadataService, this,
+            static subscriber => subscriber.OnMetadataRefreshed());
     }
 
     public event EventHandler<ClassificationChangedEventArgs> ClassificationChanged;

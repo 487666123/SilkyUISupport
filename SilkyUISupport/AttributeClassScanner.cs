@@ -145,7 +145,7 @@ internal class AttributeClassScanner
     }
 
     /// <summary>
-    /// 获取类中所有公开可读属性（包含继承自父类的属性）。
+    /// 获取类中所有公开可读的实例非索引属性（包含继承自父类的属性）。
     /// Setter 是否可用由具体补全场景进一步判断。
     /// </summary>
     /// <param name="cls">类符号</param>
@@ -153,18 +153,21 @@ internal class AttributeClassScanner
     internal List<SilkyUIProperty> GetPublicReadableProperties(INamedTypeSymbol cls)
     {
         var propertyDict = new Dictionary<string, SilkyUIProperty>();
+        var seenNames = new HashSet<string>(StringComparer.Ordinal);
         var currentType = cls;
 
         // 遍历当前类和所有基类，直到 object 类型
         while (currentType != null && currentType.SpecialType != SpecialType.System_Object)
         {
-            // 遍历当前类的所有公开可读属性
-            foreach (var property in currentType.GetMembers().OfType<IPropertySymbol>()
-                                        .Where(p => p.DeclaredAccessibility == Accessibility.Public &&
-                                                    p.GetMethod != null && p.GetMethod.DeclaredAccessibility == Accessibility.Public))
+            foreach (var property in currentType.GetMembers().OfType<IPropertySymbol>())
             {
-                // 子类属性优先：如果属性名已存在（子类已定义同名属性），跳过父类的
-                if (propertyDict.ContainsKey(property.Name))
+                // 子类属性即使不适用于 XML，也会隐藏父类的同名属性。
+                if (!seenNames.Add(property.Name))
+                    continue;
+
+                if (property.IsStatic || property.IsIndexer || property.Parameters.Length != 0 ||
+                    property.DeclaredAccessibility != Accessibility.Public ||
+                    property.GetMethod == null || property.GetMethod.DeclaredAccessibility != Accessibility.Public)
                     continue;
 
                 ImmutableArray<string> enumValues = [];

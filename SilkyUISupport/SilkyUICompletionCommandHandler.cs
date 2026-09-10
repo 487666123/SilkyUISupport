@@ -101,25 +101,23 @@ internal class SilkyUICompletionCommandHandler : IOleCommandTarget
             typedChar = (char)(ushort)Marshal.GetObjectForNativeVariant(pvaIn);
         }
 
-        // 处理补全提交操作
-        // 冒号属于 XML 名称，不是提交字符；必须先交给编辑器输入。
-        if (nCmdID == (uint)VSConstants.VSStd2KCmdID.RETURN || nCmdID == (uint)VSConstants.VSStd2KCmdID.TAB
-            || char.IsWhiteSpace(typedChar) || (typedChar != ':' && char.IsPunctuation(typedChar)))
+        // XML 名称中的 .、:、_、- 继续输入；分隔符提交后仍需交给编辑器。
+        var isExplicitCommit = pguidCmdGroup == VSConstants.VSStd2K &&
+            (nCmdID == (uint)VSConstants.VSStd2KCmdID.RETURN ||
+             nCmdID == (uint)VSConstants.VSStd2KCmdID.TAB);
+        var isCommitCharacter = char.IsWhiteSpace(typedChar) ||
+            (!SilkyUIXmlSyntax.IsNameChar(typedChar) && char.IsPunctuation(typedChar)) ||
+            typedChar is '<' or '>' or '=';
+        if (isExplicitCommit || isCommitCharacter)
         {
             // 检查当前有没有打开的补全弹窗
             if (m_session is { IsDismissed: false })
             {
-                // 句点是 M. 成员路径的一部分，不能提交当前候选项。
-                if (typedChar == '.')
-                {
-                    m_session.Dismiss();
-                }
-                // 如果用户已经选中了某个补全项
-                else if (m_session.SelectedCompletionSet.SelectionStatus.IsSelected)
+                if (m_session.SelectedCompletionSet.SelectionStatus.IsSelected)
                 {
                     m_session.Commit();
-                    // 空格需要继续交给编辑器，才能进入属性名上下文。
-                    if (typedChar != ' ') return VSConstants.S_OK;
+                    // 只有显式的 Tab/Return 提交会消费命令。
+                    if (isExplicitCommit) return VSConstants.S_OK;
                 }
                 else m_session.Dismiss();
             }
@@ -131,11 +129,9 @@ internal class SilkyUICompletionCommandHandler : IOleCommandTarget
         var handled = false;
 
         // 句点和成员标签后的空格改变补全上下文，必须在字符写入后重新分析。
-        if ((typedChar == '.' || typedChar == ' ') && ErrorHandler.Succeeded(retVal))
-        {
-            RestartMemberCompletion();
+        if ((typedChar == '.' || typedChar == ' ') && ErrorHandler.Succeeded(retVal) &&
+            RestartMemberCompletion())
             return retVal;
-        }
 
         // 冒号改变普通属性/命名空间属性上下文，重建列表而不是提交旧选项。
         if (typedChar == ':' && ErrorHandler.Succeeded(retVal))
@@ -153,9 +149,9 @@ internal class SilkyUICompletionCommandHandler : IOleCommandTarget
         }
 
         // 处理补全弹出和过滤
-        // 触发补全的字符：字母、数字、等号（=）、双引号（"）
+        // 触发或过滤补全的字符：XML 名称字符、等号和属性值引号。
         if (!typedChar.Equals(char.MinValue) &&
-            (char.IsLetterOrDigit(typedChar) || typedChar == '=' || typedChar == '"'))
+            (SilkyUIXmlSyntax.IsNameChar(typedChar) || typedChar is '=' or '"' or '\''))
         {
             if (m_session is not { IsDismissed: false })
                 TriggerCompletion();
@@ -177,7 +173,7 @@ internal class SilkyUICompletionCommandHandler : IOleCommandTarget
         return handled ? VSConstants.S_OK : retVal;
     }
 
-    private void RestartMemberCompletion()
+    private bool RestartMemberCompletion()
     {
         var point = m_textView.Caret.Position.BufferPosition;
         var context = XmlContextAnalyzer.Analyze(point.Snapshot, point.Position);
@@ -187,13 +183,14 @@ internal class SilkyUICompletionCommandHandler : IOleCommandTarget
             context.Tag?.Kind == SilkyUIXmlTagKind.Member;
 
         if (!isMemberTagName && !isMemberAttributeName)
-            return;
+            return false;
 
         if (m_session is { IsDismissed: false })
             m_session.Dismiss();
 
         if (TriggerCompletion() && m_session is { IsDismissed: false })
             m_session.Filter();
+        return true;
     }
 
     /*
