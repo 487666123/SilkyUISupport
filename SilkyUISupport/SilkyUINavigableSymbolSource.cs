@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.Threading;
@@ -78,6 +78,7 @@ internal sealed class SilkyUINavigableSymbolSource(
                     resolution.SilkyUiClass.SourceLine,
                     resolution.SilkyUiClass.SourceColumn);
                 return true;
+            case SilkyUISymbolKind.Member:
             case SilkyUISymbolKind.Attribute:
                 if (resolution.SilkyUiProperty == null || string.IsNullOrWhiteSpace(resolution.SilkyUiProperty.SourceFilePath))
                     return false;

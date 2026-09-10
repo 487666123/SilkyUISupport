@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.ComponentModel.Composition;
@@ -45,7 +46,7 @@ internal class AttributeClassScanner
 
                 // 可以有多个别名, 重复别名跳过
 
-                var properties = GetPublicReadWriteProperties(cls).ToImmutableArray();
+                var properties = GetPublicReadableProperties(cls).ToImmutableArray();
                 foreach (var attr in attrs)
                 {
                     if (attr.ConstructorArguments.Length == 0) continue;
@@ -74,6 +75,25 @@ internal class AttributeClassScanner
             .Where(t => t.TypeKind == TypeKind.Class && t.DeclaredAccessibility == Accessibility.Public);
     }
 
+    /// <summary>获取当前解决方案 C# 项目中的所有公开类，供 sui:Target 补全使用。</summary>
+    public async Task<List<SilkyUITargetClass>> GetAllPublicClassesAsync(VisualStudioWorkspace workspace)
+    {
+        var result = new List<SilkyUITargetClass>();
+        if (workspace?.CurrentSolution == null) return result;
+
+        foreach (var project in GetCSharpProjects(workspace))
+        {
+            if (await project.GetCompilationAsync() is not { } compilation) continue;
+
+            foreach (var cls in GetAllPublicClass(compilation))
+                result.Add(new SilkyUITargetClass(cls, cls.ToDisplayString()));
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        result.RemoveAll(target => !seen.Add(target.FullName));
+        return result;
+    }
+
     private const string UIElementGroupName = "SilkyUIFramework.Elements.UIElementGroup";
 
     /// <summary>
@@ -96,7 +116,7 @@ internal class AttributeClassScanner
             {
                 if (!InheritsFrom(cls, elementGroupType)) continue;
 
-                var properties = GetPublicReadWriteProperties(cls);
+                var properties = GetPublicReadableProperties(cls);
                 result.Add(new SilkyUIElementGroupClass(cls.Name, cls.ToDisplayString(), [.. properties]));
             }
         }
@@ -125,11 +145,12 @@ internal class AttributeClassScanner
     }
 
     /// <summary>
-    /// 获取类中所有公开的可读写属性（包含继承自父类的属性）
+    /// 获取类中所有公开可读属性（包含继承自父类的属性）。
+    /// Setter 是否可用由具体补全场景进一步判断。
     /// </summary>
     /// <param name="cls">类符号</param>
     /// <returns>属性列表</returns>
-    private List<SilkyUIProperty> GetPublicReadWriteProperties(INamedTypeSymbol cls)
+    internal List<SilkyUIProperty> GetPublicReadableProperties(INamedTypeSymbol cls)
     {
         var propertyDict = new Dictionary<string, SilkyUIProperty>();
         var currentType = cls;
@@ -137,11 +158,10 @@ internal class AttributeClassScanner
         // 遍历当前类和所有基类，直到 object 类型
         while (currentType != null && currentType.SpecialType != SpecialType.System_Object)
         {
-            // 遍历当前类的所有公开可读写属性
+            // 遍历当前类的所有公开可读属性
             foreach (var property in currentType.GetMembers().OfType<IPropertySymbol>()
                                         .Where(p => p.DeclaredAccessibility == Accessibility.Public &&
-                                                    p.GetMethod != null && p.GetMethod.DeclaredAccessibility == Accessibility.Public &&
-                                                    p.SetMethod != null && p.SetMethod.DeclaredAccessibility == Accessibility.Public))
+                                                    p.GetMethod != null && p.GetMethod.DeclaredAccessibility == Accessibility.Public))
             {
                 // 子类属性优先：如果属性名已存在（子类已定义同名属性），跳过父类的
                 if (propertyDict.ContainsKey(property.Name))

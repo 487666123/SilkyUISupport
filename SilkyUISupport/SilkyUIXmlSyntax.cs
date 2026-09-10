@@ -6,7 +6,7 @@ using System.Xml;
 
 namespace SilkyUISupport;
 
-internal enum SilkyUIAttributeKind { None, Class, Name, Style }
+internal enum SilkyUIAttributeKind { None, Class, Name, Style, Target }
 internal enum SilkyUIXmlTagKind { Unknown, Body, Member, Style, Ordinary }
 
 internal readonly struct SilkyUIXmlAttribute
@@ -137,6 +137,7 @@ internal static class SilkyUIXmlSyntax
             "Class" => SilkyUIAttributeKind.Class,
             "Name" => SilkyUIAttributeKind.Name,
             "Style" => SilkyUIAttributeKind.Style,
+            "Target" => SilkyUIAttributeKind.Target,
             _ => SilkyUIAttributeKind.None
         };
     }

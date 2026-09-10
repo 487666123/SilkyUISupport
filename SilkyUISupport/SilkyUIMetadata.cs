@@ -11,6 +11,10 @@ internal sealed record class XmlMappingClass(
     int SourceLine,
     int SourceColumn);
 
+internal sealed record class SilkyUITargetClass(
+    INamedTypeSymbol Class,
+    string FullName);
+
 internal sealed record class SilkyUIProperty(
     IPropertySymbol Property,
     ImmutableArray<string> Enums,

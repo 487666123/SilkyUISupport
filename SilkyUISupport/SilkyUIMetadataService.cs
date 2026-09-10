@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.ComponentModel.Composition;
@@ -35,6 +36,9 @@ internal class SilkyUIMetadataService : IPartImportsSatisfiedNotification
 
     private List<XmlMappingClass> _cachedClasses = [];
     private List<SilkyUIElementGroupClass> _cachedUIClasses = [];
+    private ImmutableList<SilkyUIProperty> _cachedStyleProperties = [];
+    private ImmutableList<SilkyUITargetClass> _cachedTargetClasses = [];
+    private ConcurrentDictionary<string, ImmutableList<SilkyUIProperty>> _targetPropertyCache = new(StringComparer.Ordinal);
 
     /// <summary>
     /// 获取所有 SilkyUI 类（带缓存）
@@ -45,6 +49,24 @@ internal class SilkyUIMetadataService : IPartImportsSatisfiedNotification
     /// 获取继承自 UIElementGroup 的类（Body Class 补全用）。
     /// </summary>
     public ImmutableList<SilkyUIElementGroupClass> GetAllGroupClasses() => [.. _cachedUIClasses];
+
+    /// <summary>获取所有映射元素公开属性的合并集合（按首次出现的属性名去重）。</summary>
+    public ImmutableList<SilkyUIProperty> GetAllStyleProperties() => _cachedStyleProperties;
+
+    /// <summary>获取所有公开类，供 sui:Target 补全使用。</summary>
+    public ImmutableList<SilkyUITargetClass> GetAllTargetClasses() => _cachedTargetClasses;
+
+    /// <summary>获取指定公开类及其基类的公开属性。</summary>
+    public ImmutableList<SilkyUIProperty> GetTargetProperties(string fullName)
+    {
+        if (string.IsNullOrWhiteSpace(fullName)) return [];
+
+        var target = _cachedTargetClasses.FirstOrDefault(item => item.FullName == fullName);
+        if (target == null) return [];
+
+        return _targetPropertyCache.GetOrAdd(target.FullName, _ =>
+            [.. ClassScanner.GetPublicReadableProperties(target.Class)]);
+    }
 
     /// <summary>
     /// 根据类名获取 SilkyUI 类
@@ -64,6 +86,19 @@ internal class SilkyUIMetadataService : IPartImportsSatisfiedNotification
         if (string.IsNullOrWhiteSpace(className) || string.IsNullOrWhiteSpace(propertyName)) return null;
 
         return GetClassByName(className)?.Properties.FirstOrDefault(p => p.Property.Name == propertyName);
+    }
+
+    private static ImmutableList<SilkyUIProperty> BuildStyleProperties(IEnumerable<XmlMappingClass> classes)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var properties = new List<SilkyUIProperty>();
+
+        foreach (var xmlClass in classes)
+            foreach (var property in xmlClass.Properties)
+                if (seen.Add(property.Property.Name))
+                    properties.Add(property);
+
+        return [.. properties];
     }
 
     #region 刷新任务
@@ -91,6 +126,11 @@ internal class SilkyUIMetadataService : IPartImportsSatisfiedNotification
 
             var classes = await Task.Run(() => ClassScanner.GetClassesWithAttributeAsync(Workspace, XmlElementMappingAttributeGlobalName));
             Interlocked.Exchange(ref _cachedClasses, classes);
+            Interlocked.Exchange(ref _cachedStyleProperties, BuildStyleProperties(classes));
+
+            var targetClasses = await Task.Run(() => ClassScanner.GetAllPublicClassesAsync(Workspace));
+            Interlocked.Exchange(ref _cachedTargetClasses, [.. targetClasses]);
+            Interlocked.Exchange(ref _targetPropertyCache, new ConcurrentDictionary<string, ImmutableList<SilkyUIProperty>>(StringComparer.Ordinal));
 
             var groupClasses = await Task.Run(() => ClassScanner.GetUIElementGroupClassesAsync(Workspace));
             Interlocked.Exchange(ref _cachedUIClasses, groupClasses);

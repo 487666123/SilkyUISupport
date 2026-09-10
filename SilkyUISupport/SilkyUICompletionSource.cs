@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.ComponentModel.Composition;
 using System.Linq;
 using Microsoft.VisualStudio.Imaging;
 using Microsoft.VisualStudio.Language.Intellisense;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Utilities;
+using Microsoft.CodeAnalysis;
 
 namespace SilkyUISupport;
 
@@ -40,15 +42,100 @@ internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourcePro
     /// <summary>从根元素的 sui:Class 属性解析对应的 UIElementGroup 类。</summary>
     private SilkyUIElementGroupClass ResolveBodyClass(XmlContext context)
     {
-        if (context.TagStart < 0) return null;
+        return context?.TagStart >= 0 ? ResolveBodyClass(context.Tag) : null;
+    }
 
-        if (context.Tag == null || !context.Tag.TryGetSuiAttributeValue(
-                SilkyUIAttributeKind.Class, out var className) ||
+    private SilkyUIElementGroupClass ResolveBodyClass(SilkyUIXmlTag tag)
+    {
+        if (tag == null || !tag.TryGetSuiAttributeValue(SilkyUIAttributeKind.Class, out var className) ||
             string.IsNullOrWhiteSpace(className))
             return null;
 
-        return m_metadataService.GetAllGroupClasses().FirstOrDefault(c => c.FullName == className)
-            ?? m_metadataService.GetAllGroupClasses().FirstOrDefault(c => c.Name == className);
+        var groupClasses = m_metadataService.GetAllGroupClasses();
+        return groupClasses.FirstOrDefault(c => c.FullName == className)
+            ?? groupClasses.FirstOrDefault(c => c.Name == className);
+    }
+
+    private IEnumerable<SilkyUIProperty> ResolvePropertiesForTag(
+        SilkyUIXmlDocument document, SilkyUIXmlTag tag)
+    {
+        if (tag == null) return null;
+
+        if (tag.Kind == SilkyUIXmlTagKind.Body)
+            return ResolveBodyClass(document.GetBodyTag())?.Properties;
+
+        if (tag.Kind == SilkyUIXmlTagKind.Ordinary)
+            return m_metadataService.GetClassByName(tag.Name)?.Properties;
+
+        // 当前只支持直接挂在 Body 或普通元素下的 M.Xxx。
+        return null;
+    }
+
+    private INamedTypeSymbol ResolveMemberType(
+        SilkyUIXmlDocument document, SilkyUIXmlTag memberTag)
+    {
+        if (memberTag == null || memberTag.Kind != SilkyUIXmlTagKind.Member ||
+            memberTag.Name.Length <= 2)
+            return null;
+
+        var parentTag = document.GetParentTag(memberTag.Start);
+        var parentProperties = ResolvePropertiesForTag(document, parentTag);
+        if (parentProperties == null) return null;
+
+        var memberName = memberTag.Name.Substring(2);
+        var memberProperty = parentProperties.FirstOrDefault(property =>
+            property.Property.Name == memberName);
+        return memberProperty?.Property.Type as INamedTypeSymbol;
+    }
+
+    private IEnumerable<SilkyUIProperty> ResolveMemberProperties(
+        SilkyUIXmlDocument document, SilkyUIXmlTag memberTag)
+    {
+        return ResolveMemberType(document, memberTag) is { } memberType
+            ? GetNamedTypeProperties(memberType)
+            : null;
+    }
+
+    private IEnumerable<SilkyUIProperty> ResolveStyleProperties(SilkyUIXmlTag styleTag)
+    {
+        if (styleTag.TryGetSuiAttributeValue(SilkyUIAttributeKind.Target, out var targetName))
+            return m_metadataService.GetTargetProperties(targetName);
+
+        return m_metadataService.GetAllStyleProperties();
+    }
+
+    private static IEnumerable<SilkyUIProperty> GetNamedTypeProperties(INamedTypeSymbol type)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (var current = type; current != null; current = current.BaseType)
+        {
+            foreach (var property in current.GetMembers().OfType<IPropertySymbol>())
+            {
+                if (!seen.Add(property.Name) || property.IsStatic ||
+                    property.GetMethod?.DeclaredAccessibility != Accessibility.Public ||
+                    property.SetMethod?.DeclaredAccessibility != Accessibility.Public)
+                    continue;
+
+                yield return new SilkyUIProperty(
+                    property,
+                    GetEnumValues(property.Type),
+                    string.Empty,
+                    0,
+                    0);
+            }
+        }
+    }
+
+    private static ImmutableArray<string> GetEnumValues(ITypeSymbol type)
+    {
+        if (type is not INamedTypeSymbol enumType || type.TypeKind != TypeKind.Enum)
+            return [];
+
+        return [.. enumType.GetMembers()
+            .OfType<IFieldSymbol>()
+            .Where(field => field.IsStatic && field.IsConst &&
+                            field.DeclaredAccessibility == Accessibility.Public)
+            .Select(field => field.Name)];
     }
 
     private static bool IsSuiAttribute(XmlContext context, SilkyUIAttributeKind kind)
@@ -72,6 +159,9 @@ internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourcePro
     {
         foreach (var property in properties)
         {
+            if (property.Property.SetMethod?.DeclaredAccessibility != Accessibility.Public)
+                continue;
+
             var propertyName = property.Property.Name;
             var propertyTypeName = property.Property.Type.ToDisplayString();
             completions.Add(new Completion4(
@@ -104,12 +194,54 @@ internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourcePro
             completions.Add(new Completion4(@enum, @enum, @enum, KnownMonikers.Enumeration));
     }
 
+    private static void AddTargetClassCompletions(
+        ICollection<Completion> completions, IEnumerable<SilkyUITargetClass> targetClasses)
+    {
+        foreach (var targetClass in targetClasses)
+        {
+            completions.Add(new Completion4(
+                targetClass.Class.Name,
+                targetClass.FullName,
+                targetClass.FullName,
+                KnownMonikers.Class,
+                suffix: targetClass.FullName));
+        }
+    }
+
+    private static void AddStylePropertyCompletions(
+        ICollection<Completion> completions, IEnumerable<SilkyUIProperty> properties)
+    {
+        foreach (var property in properties)
+        {
+            var propertyName = property.Property.Name;
+            var propertyTypeName = property.Property.Type.ToDisplayString();
+            completions.Add(new Completion4(
+                propertyName,
+                propertyName,
+                propertyTypeName,
+                KnownMonikers.Property,
+                suffix: propertyTypeName));
+        }
+    }
+
+    private static bool IsUIViewType(INamedTypeSymbol type)
+    {
+        for (var current = type; current != null; current = current.BaseType)
+            if (current.ToDisplayString() == "SilkyUIFramework.Elements.UIView")
+                return true;
+
+        return false;
+    }
+
+    private bool CanBindMember(SilkyUIXmlDocument document, SilkyUIXmlTag memberTag)
+        => IsUIViewType(ResolveMemberType(document, memberTag));
+
     private static void AddBindingPropertyCompletions(
         ICollection<Completion> completions, string prefix, IEnumerable<SilkyUIProperty> properties)
     {
         foreach (var property in properties)
         {
-            if (property.Property.SetMethod == null)
+            if (property.Property.SetMethod?.DeclaredAccessibility != Accessibility.Public)
                 continue;
 
             var propertyName = property.Property.Name;
@@ -117,6 +249,38 @@ internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourcePro
             completions.Add(new Completion4(
                 $"{prefix}:{propertyName}",
                 $"{prefix}:{propertyName}",
+                propertyTypeName,
+                KnownMonikers.Property,
+                suffix: propertyTypeName));
+        }
+    }
+
+    private static bool IsExpandableMemberProperty(IPropertySymbol property)
+    {
+        if (property.IsStatic ||
+            property.GetMethod?.DeclaredAccessibility != Accessibility.Public ||
+            property.Type is not INamedTypeSymbol type ||
+            type.SpecialType != SpecialType.None ||
+            type.TypeKind is not (TypeKind.Class or TypeKind.Interface))
+            return false;
+
+        return true;
+    }
+
+    private static void AddMemberPropertyCompletions(
+        ICollection<Completion> completions, IEnumerable<SilkyUIProperty> properties)
+    {
+        foreach (var property in properties)
+        {
+            // M.* 展开现有引用对象；父属性只需可读，不要求 Setter。
+            if (!IsExpandableMemberProperty(property.Property))
+                continue;
+
+            var propertyName = property.Property.Name;
+            var propertyTypeName = property.Property.Type.ToDisplayString();
+            completions.Add(new Completion4(
+                $"M.{propertyName}",
+                $"M.{propertyName}",
                 propertyTypeName,
                 KnownMonikers.Property,
                 suffix: propertyTypeName));
@@ -142,18 +306,30 @@ internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourcePro
         {
             case XmlContextType.TagName:
             {
-                m_compList.Add(new Completion4("Body", "Body", "根元素", KnownMonikers.Class));
-                foreach (var suiPrefix in suiPrefixes)
-                    AddDirectiveCompletion(m_compList, suiPrefix, "Style", "SilkyUI 样式元素");
-
-                foreach (var xmlMappingClass in m_metadataService.GetAllClasses())
+                var isMemberTag = currentTag == "M" ||
+                                  currentTag.StartsWith("M.", StringComparison.Ordinal);
+                if (isMemberTag)
                 {
-                    m_compList.Add(new Completion4(
-                        xmlMappingClass.Alias,
-                        xmlMappingClass.Alias,
-                        xmlMappingClass.Class.ToDisplayString(),
-                        KnownMonikers.Class,
-                        suffix: xmlMappingClass.Class.ToDisplayString()));
+                    var document = SilkyUIXmlDocument.Get(snapshot);
+                    var parentTag = document.GetParentTag(context.TagStart);
+                    var parentProperties = ResolvePropertiesForTag(document, parentTag);
+                    AddMemberPropertyCompletions(m_compList, parentProperties);
+                }
+                else
+                {
+                    m_compList.Add(new Completion4("Body", "Body", "根元素", KnownMonikers.Class));
+                    foreach (var suiPrefix in suiPrefixes)
+                        AddDirectiveCompletion(m_compList, suiPrefix, "Style", "SilkyUI 样式元素");
+
+                    foreach (var xmlMappingClass in m_metadataService.GetAllClasses())
+                    {
+                        m_compList.Add(new Completion4(
+                            xmlMappingClass.Alias,
+                            xmlMappingClass.Alias,
+                            xmlMappingClass.Class.ToDisplayString(),
+                            KnownMonikers.Class,
+                            suffix: xmlMappingClass.Class.ToDisplayString()));
+                    }
                 }
                 break;
             }
@@ -162,18 +338,25 @@ internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourcePro
                 if (tag == null) break;
                 if (tag.Kind == SilkyUIXmlTagKind.Style)
                 {
+                    AddStylePropertyCompletions(m_compList, ResolveStyleProperties(tag));
                     foreach (var suiPrefix in suiPrefixes)
+                    {
                         AddDirectiveCompletion(m_compList, suiPrefix, "Name", "定义样式名称");
+                        AddDirectiveCompletion(m_compList, suiPrefix, "Target", "指定样式属性来源类全名");
+                    }
                     break;
                 }
-                if (tag.Kind is not (SilkyUIXmlTagKind.Body or SilkyUIXmlTagKind.Ordinary)) break;
 
-                var properties = tag.Kind == SilkyUIXmlTagKind.Body
-                    ? ResolveBodyClass(context)?.Properties ?? []
-                    : m_metadataService.GetClassByName(currentTag)?.Properties ?? [];
+                var document = SilkyUIXmlDocument.Get(snapshot);
+                var properties = tag.Kind == SilkyUIXmlTagKind.Member
+                    ? ResolveMemberProperties(document, tag)
+                    : ResolvePropertiesForTag(document, tag);
+                if (properties == null) break;
+
+                var canBind = tag.Kind != SilkyUIXmlTagKind.Member || CanBindMember(document, tag);
                 var attributePrefix = SilkyUIXmlSyntax.GetPrefix(context.CurrentAttribute);
                 var hasColon = context.CurrentAttribute.IndexOf(':') >= 0;
-                if (hasColon && bindingPrefixes.Contains(attributePrefix, StringComparer.Ordinal))
+                if (canBind && hasColon && bindingPrefixes.Contains(attributePrefix, StringComparer.Ordinal))
                 {
                     AddBindingPropertyCompletions(m_compList, attributePrefix, properties);
                     break;
@@ -183,20 +366,24 @@ internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourcePro
                 if (!hasColon)
                 {
                     AddOrdinaryPropertyCompletions(m_compList, properties);
-                    foreach (var bindingPrefix in bindingPrefixes)
-                        AddBindingPropertyCompletions(m_compList, bindingPrefix, properties);
+                    if (canBind)
+                    {
+                        foreach (var bindingPrefix in bindingPrefixes)
+                            AddBindingPropertyCompletions(m_compList, bindingPrefix, properties);
+                    }
                 }
 
                 foreach (var suiPrefix in suiPrefixes)
                 {
                     if (hasColon && attributePrefix != suiPrefix) continue;
+
                     if (tag.Kind == SilkyUIXmlTagKind.Body)
                         AddDirectiveCompletion(m_compList, suiPrefix, "Class", "指定 UIElementGroup 子类全名");
-                    else if (m_metadataService.GetClassByName(currentTag) != null)
+                    else if (tag.Kind == SilkyUIXmlTagKind.Ordinary)
                         AddDirectiveCompletion(m_compList, suiPrefix, "Name", "生成 C# 控件属性");
-                    else
-                        continue;
-                    AddDirectiveCompletion(m_compList, suiPrefix, "Style", "引用一个或多个样式");
+
+                    if (tag.Kind is SilkyUIXmlTagKind.Body or SilkyUIXmlTagKind.Ordinary or SilkyUIXmlTagKind.Member)
+                        AddDirectiveCompletion(m_compList, suiPrefix, "Style", "引用一个或多个样式");
                 }
                 break;
             }
@@ -217,7 +404,13 @@ internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourcePro
                     break;
                 }
 
-                if (tag == null || tag.Kind is not (SilkyUIXmlTagKind.Body or SilkyUIXmlTagKind.Ordinary)) break;
+                if (tag == null) break;
+
+                if (tag.Kind == SilkyUIXmlTagKind.Style && IsSuiAttribute(context, SilkyUIAttributeKind.Target))
+                {
+                    AddTargetClassCompletions(m_compList, m_metadataService.GetAllTargetClasses());
+                    break;
+                }
 
                 if (tag.Kind == SilkyUIXmlTagKind.Body && IsSuiAttribute(context, SilkyUIAttributeKind.Class))
                 {
@@ -242,16 +435,13 @@ internal class SilkyUICompletionSource(SilkyUICompletionSourceProvider sourcePro
                 if (context.CurrentAttribute.Contains(":", StringComparison.Ordinal))
                     break;
 
-                SilkyUIProperty property = null;
-                if (currentTag == "Body")
-                {
-                    property = ResolveBodyClass(context)?.Properties
-                        .FirstOrDefault(item => item.Property.Name == context.CurrentAttribute);
-                }
-                else
-                {
-                    property = m_metadataService.GetPropertyByName(currentTag, context.CurrentAttribute);
-                }
+                var document = SilkyUIXmlDocument.Get(snapshot);
+                var properties = tag.Kind == SilkyUIXmlTagKind.Member
+                    ? ResolveMemberProperties(document, tag)
+                    : ResolvePropertiesForTag(document, tag);
+                var property = properties?.FirstOrDefault(item =>
+                    item.Property.Name == context.CurrentAttribute &&
+                    item.Property.SetMethod?.DeclaredAccessibility == Accessibility.Public);
 
                 AddEnumValueCompletions(m_compList, property);
                 break;

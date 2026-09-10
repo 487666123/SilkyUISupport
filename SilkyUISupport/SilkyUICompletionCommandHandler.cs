@@ -109,10 +109,17 @@ internal class SilkyUICompletionCommandHandler : IOleCommandTarget
             // 检查当前有没有打开的补全弹窗
             if (m_session is { IsDismissed: false })
             {
-                // 如果用户已经选中了某个补全项
-                if (m_session.SelectedCompletionSet.SelectionStatus.IsSelected)
+                // 句点是 M. 成员路径的一部分，不能提交当前候选项。
+                if (typedChar == '.')
                 {
-                    m_session.Commit(); return VSConstants.S_OK;
+                    m_session.Dismiss();
+                }
+                // 如果用户已经选中了某个补全项
+                else if (m_session.SelectedCompletionSet.SelectionStatus.IsSelected)
+                {
+                    m_session.Commit();
+                    // 空格需要继续交给编辑器，才能进入属性名上下文。
+                    if (typedChar != ' ') return VSConstants.S_OK;
                 }
                 else m_session.Dismiss();
             }
@@ -122,6 +129,13 @@ internal class SilkyUICompletionCommandHandler : IOleCommandTarget
         // 比如用户输入了字母'a'，先让'a'出现在编辑器中，然后我们再弹出补全
         var retVal = m_nextCommandHandler.Exec(ref pguidCmdGroup, nCmdID, nCmdexecopt, pvaIn, pvaOut);
         var handled = false;
+
+        // 句点和成员标签后的空格改变补全上下文，必须在字符写入后重新分析。
+        if ((typedChar == '.' || typedChar == ' ') && ErrorHandler.Succeeded(retVal))
+        {
+            RestartMemberCompletion();
+            return retVal;
+        }
 
         // 冒号改变普通属性/命名空间属性上下文，重建列表而不是提交旧选项。
         if (typedChar == ':' && ErrorHandler.Succeeded(retVal))
@@ -161,6 +175,25 @@ internal class SilkyUICompletionCommandHandler : IOleCommandTarget
         }
 
         return handled ? VSConstants.S_OK : retVal;
+    }
+
+    private void RestartMemberCompletion()
+    {
+        var point = m_textView.Caret.Position.BufferPosition;
+        var context = XmlContextAnalyzer.Analyze(point.Snapshot, point.Position);
+        var isMemberTagName = context.ContextType == XmlContextType.TagName &&
+            (context.CurrentTag == "M" || context.CurrentTag.StartsWith("M.", StringComparison.Ordinal));
+        var isMemberAttributeName = context.ContextType == XmlContextType.AttributeName &&
+            context.Tag?.Kind == SilkyUIXmlTagKind.Member;
+
+        if (!isMemberTagName && !isMemberAttributeName)
+            return;
+
+        if (m_session is { IsDismissed: false })
+            m_session.Dismiss();
+
+        if (TriggerCompletion() && m_session is { IsDismissed: false })
+            m_session.Filter();
     }
 
     /*

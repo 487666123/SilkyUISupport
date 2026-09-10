@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
 using System.Linq;
+using Microsoft.CodeAnalysis;
 using Microsoft.VisualStudio.Language.StandardClassification;
 using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Classification;
@@ -81,6 +82,9 @@ internal sealed class SilkyUIAttributeClassifier : IClassifier
             if (tag.IsClosing) continue;
 
             var bodyClass = tag.Kind == SilkyUIXmlTagKind.Body ? ResolveBodyClass(tag) : null;
+            var memberProperties = tag.Kind == SilkyUIXmlTagKind.Member
+                ? ResolveMemberProperties(document, tag)
+                : null;
             foreach (var attribute in tag.Attributes)
             {
                 var type = _unknownAttributeType;
@@ -90,7 +94,8 @@ internal sealed class SilkyUIAttributeClassifier : IClassifier
                          SilkyUIXmlSyntax.TryGetBindingPropertyName(tag.Scope, attribute.Name, out _)))
                     type = _specialAttributeType;
                 else if (bodyClass?.Properties.Any(property => property.Property.Name == attribute.Name) == true ||
-                         mappedClass?.Properties.Any(property => property.Property.Name == attribute.Name) == true)
+                         mappedClass?.Properties.Any(property => property.Property.Name == attribute.Name) == true ||
+                         memberProperties?.Any(property => property.Name == attribute.Name) == true)
                     type = _attributeType;
                 AddSpan(attribute.NameStart, attribute.Name.Length, type);
             }
@@ -101,6 +106,38 @@ internal sealed class SilkyUIAttributeClassifier : IClassifier
         {
             var span = new SnapshotSpan(snapshot, start, length);
             if (requestedSpan.IntersectsWith(span)) result.Add(new ClassificationSpan(span, type));
+        }
+    }
+
+    private IEnumerable<IPropertySymbol> ResolveMemberProperties(
+        SilkyUIXmlDocument document, SilkyUIXmlTag memberTag)
+    {
+        if (memberTag.Name.Length <= 2) yield break;
+
+        var parentTag = document.GetParentTag(memberTag.Start);
+        IEnumerable<SilkyUIProperty> parentProperties = null;
+        if (parentTag?.Kind == SilkyUIXmlTagKind.Body)
+            parentProperties = ResolveBodyClass(document.GetBodyTag())?.Properties;
+        else if (parentTag?.Kind == SilkyUIXmlTagKind.Ordinary)
+            parentProperties = _metadataService.GetClassByName(parentTag.Name)?.Properties;
+
+        var memberProperty = parentProperties?.FirstOrDefault(property =>
+            property.Property.Name == memberTag.Name.Substring(2));
+        if (memberProperty?.Property.Type is not INamedTypeSymbol memberType)
+            yield break;
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (var current = memberType; current != null; current = current.BaseType)
+        {
+            foreach (var property in current.GetMembers().OfType<IPropertySymbol>())
+            {
+                if (!seen.Add(property.Name) || property.IsStatic ||
+                    property.GetMethod?.DeclaredAccessibility != Accessibility.Public ||
+                    property.SetMethod?.DeclaredAccessibility != Accessibility.Public)
+                    continue;
+
+                yield return property;
+            }
         }
     }
 

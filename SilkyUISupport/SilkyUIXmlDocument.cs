@@ -94,4 +94,47 @@ internal sealed class SilkyUIXmlDocument
         }
         return low;
     }
+
+    /// <summary>
+    /// 找到指定位置之前最近的开放标签。
+    /// 调用方传入当前标签的 Start 时，当前标签不会被当作自己的父标签。
+    /// </summary>
+    public SilkyUIXmlTag GetParentTag(int position)
+    {
+        if (_tags.Length == 0 || position < 0) return null;
+
+        var stack = new List<SilkyUIXmlTag>();
+        var startIndex = FindFirstEndingAtOrAfter(0);
+
+        for (var i = startIndex; i < _tags.Length && _tags[i].Start < position; i++)
+        {
+            var tag = _tags[i];
+
+            if (tag.IsClosing)
+            {
+                var matchingIndex = stack.FindLastIndex(openTag => openTag.Name == tag.Name);
+                if (matchingIndex >= 0)
+                    stack.RemoveRange(matchingIndex, stack.Count - matchingIndex);
+            }
+            else if (!tag.IsSelfClosing && tag.Name.Length > 0)
+            {
+                stack.Add(tag);
+            }
+        }
+
+        return stack.Count > 0 ? stack[stack.Count - 1] : null;
+    }
+    
+    /// <summary>
+    /// 找到文档的根 Body 标签。
+    /// </summary>
+    public SilkyUIXmlTag GetBodyTag()
+    {
+        foreach (var tag in _tags)
+        {
+            if (!tag.IsClosing && tag.Kind == SilkyUIXmlTagKind.Body)
+                return tag;
+        }
+        return null;
+    }
 }
