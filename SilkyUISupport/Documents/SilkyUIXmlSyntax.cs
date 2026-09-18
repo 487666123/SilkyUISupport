@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Xml;
 
 namespace SilkyUISupport;
@@ -75,6 +74,7 @@ internal sealed class SilkyUIXmlTag
     public IReadOnlyList<SilkyUIXmlAttribute> Attributes { get; set; }
     public SilkyUIXmlNamespaceScope Scope { get; set; }
     public SilkyUIXmlNamespaceScope InheritedScope { get; set; }
+    public SilkyUIXmlTag Parent { get; set; }
 
     public SilkyUIXmlTagKind Kind => SilkyUIXmlSyntax.GetTagKind(Name, Scope);
 
@@ -148,98 +148,7 @@ internal static class SilkyUIXmlSyntax
         return propertyName.Length > 0;
     }
 
-    // Compatibility for callers that already have a bounded tag range.
-    public static bool TryGetSuiAttributeKind(string text, int tagStart, int tagEnd, string name, out SilkyUIAttributeKind kind)
-    {
-        kind = GetSuiAttributeKind(GetTag(text, tagStart, tagEnd < 0 ? -1 : tagEnd + 1)?.Scope, name);
-        return kind != SilkyUIAttributeKind.None;
-    }
-
-    public static SilkyUIXmlTag GetTag(string text, int tagStart, int scanEnd)
-    {
-        if (scanEnd < tagStart || tagStart < 0) return null;
-        return EnumerateTags(text, scanEnd).FirstOrDefault(tag => tag.Start == tagStart);
-    }
-
-    public static int FindTagEnd(string text, int tagStart)
-    {
-        if (string.IsNullOrEmpty(text) || tagStart < 0 || tagStart >= text.Length) return -1;
-        var end = FindTagBoundary(text, tagStart, text.Length);
-        return end < text.Length && text[end] == '>' ? end : -1;
-    }
-
-    private static int FindTagBoundary(string text, int start, int limit)
-    {
-        var quote = '\0';
-        for (var position = start + 1; position < limit; position++)
-        {
-            var current = text[position];
-            if (quote != '\0')
-            {
-                if (current == quote) quote = '\0';
-            }
-            else if (current is '\'' or '"') quote = current;
-            else if (current is '<' or '>') return position;
-        }
-        return limit;
-    }
-
-    // The same bounded, quote-aware token stream drives completion, classification and diagnostics.
-    public static IEnumerable<SilkyUIXmlTag> EnumerateTags(string text, int limit = -1)
-    {
-        if (string.IsNullOrEmpty(text)) yield break;
-        limit = limit < 0 ? text.Length : Math.Min(limit, text.Length);
-        var stack = new List<SilkyUIXmlTag>();
-        var position = 0;
-        while (position < limit)
-        {
-            var start = text.IndexOf('<', position, limit - position);
-            if (start < 0) yield break;
-            if (start + 1 < limit && text[start + 1] is '?' or '!')
-            {
-                position = SkipMarkup(text, start, limit);
-                continue;
-            }
-
-            var boundary = FindTagBoundary(text, start, limit);
-            var complete = boundary < limit && text[boundary] == '>';
-            var nameStart = start + 1;
-            var closing = nameStart < boundary && text[nameStart] == '/';
-            if (closing) nameStart++;
-            while (nameStart < boundary && char.IsWhiteSpace(text[nameStart])) nameStart++;
-            var nameEnd = nameStart;
-            while (nameEnd < boundary && IsNameChar(text[nameEnd])) nameEnd++;
-            var name = text.Substring(nameStart, nameEnd - nameStart);
-            var tail = boundary - 1;
-            while (tail > nameEnd && char.IsWhiteSpace(text[tail])) tail--;
-            var selfClosing = complete && tail >= nameEnd && text[tail] == '/';
-            var attributes = closing ? new List<SilkyUIXmlAttribute>() : ReadAttributes(text, nameEnd, boundary);
-            var parentScope = stack.Count > 0 ? stack[stack.Count - 1].Scope : null;
-            var matchingIndex = -1;
-            if (closing)
-            {
-                matchingIndex = stack.FindLastIndex(tag => tag.Name == name);
-                if (matchingIndex >= 0) parentScope = stack[matchingIndex].Scope;
-            }
-
-            var tag = new SilkyUIXmlTag
-            {
-                Start = start, NameStart = nameStart, Name = name, ContentEnd = boundary,
-                End = complete ? boundary + 1 : boundary, IsComplete = complete,
-                IsClosing = closing, IsSelfClosing = selfClosing, Attributes = attributes,
-                InheritedScope = parentScope, Scope = CreateScope(parentScope, attributes)
-            };
-            yield return tag;
-
-            if (closing && matchingIndex >= 0)
-                stack.RemoveRange(matchingIndex, stack.Count - matchingIndex);
-            else if (!closing && !selfClosing && name.Length > 0)
-                stack.Add(tag);
-            position = tag.End;
-        }
-    }
-
-    private static SilkyUIXmlNamespaceScope CreateScope(
+    internal static SilkyUIXmlNamespaceScope CreateScope(
         SilkyUIXmlNamespaceScope parent, IEnumerable<SilkyUIXmlAttribute> attributes)
     {
         var declarations = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -252,7 +161,7 @@ internal static class SilkyUIXmlSyntax
         return new SilkyUIXmlNamespaceScope(parent, declarations);
     }
 
-    /// <summary>Project cached tokens up to the caret without re-scanning text or importing future declarations.</summary>
+    /// <summary>投影缓存的 token 直到光标位置，不重新扫描文本或导入后续声明。</summary>
     public static SilkyUIXmlTag GetIncompletePrefix(SilkyUIXmlTag tag, int position)
     {
         position = Math.Max(tag.Start + 1, Math.Min(position, tag.ContentEnd));
@@ -275,52 +184,9 @@ internal static class SilkyUIXmlSyntax
             Start = tag.Start, NameStart = Math.Min(tag.NameStart, position),
             Name = tag.Name.Substring(0, Math.Max(0, Math.Min(tag.Name.Length, position - tag.NameStart))),
             ContentEnd = position, End = position, IsClosing = tag.IsClosing,
-            Attributes = attributes, InheritedScope = tag.InheritedScope,
+            Attributes = attributes, Parent = tag.Parent, InheritedScope = tag.InheritedScope,
             Scope = CreateScope(tag.InheritedScope, attributes)
         };
-    }
-
-    private static List<SilkyUIXmlAttribute> ReadAttributes(string text, int position, int limit)
-    {
-        var attributes = new List<SilkyUIXmlAttribute>();
-        while (position < limit)
-        {
-            while (position < limit && char.IsWhiteSpace(text[position])) position++;
-            if (position >= limit || text[position] == '/') break;
-            var nameStart = position;
-            while (position < limit && IsNameChar(text[position])) position++;
-            if (position == nameStart) { position++; continue; }
-            var name = text.Substring(nameStart, position - nameStart);
-            var nameEnd = position;
-            while (position < limit && char.IsWhiteSpace(text[position])) position++;
-            var valueStart = -1;
-            var value = string.Empty;
-            var quote = '\0';
-            var valueComplete = false;
-            var attributeEnd = nameEnd;
-            if (position < limit && text[position] == '=')
-            {
-                position++;
-                while (position < limit && char.IsWhiteSpace(text[position])) position++;
-                if (position < limit && text[position] is '\'' or '"') quote = text[position++];
-                valueStart = position;
-                if (quote != '\0')
-                {
-                    while (position < limit && text[position] != quote) position++;
-                    value = text.Substring(valueStart, position - valueStart);
-                    valueComplete = position < limit;
-                    if (valueComplete) position++;
-                }
-                else
-                {
-                    while (position < limit && !char.IsWhiteSpace(text[position]) && text[position] != '/') position++;
-                    value = text.Substring(valueStart, position - valueStart);
-                }
-                attributeEnd = position;
-            }
-            attributes.Add(new SilkyUIXmlAttribute(name, value, nameStart, valueStart, attributeEnd, quote, valueComplete));
-        }
-        return attributes;
     }
 
     private static string DecodeNamespaceValue(SilkyUIXmlAttribute attribute)
@@ -336,43 +202,6 @@ internal static class SilkyUIXmlSyntax
             return reader.GetAttribute("a") ?? string.Empty;
         }
         catch (XmlException) { return string.Empty; }
-    }
-
-    private static int SkipMarkup(string text, int start, int limit)
-    {
-        string terminator = null;
-        if (StartsWith(text, start, limit, "<!--")) terminator = "-->";
-        else if (StartsWith(text, start, limit, "<![CDATA[")) terminator = "]]>";
-        else if (text[start + 1] == '?') terminator = "?>";
-        if (terminator != null)
-        {
-            var end = text.IndexOf(terminator, start + 2, limit - start - 2, StringComparison.Ordinal);
-            return end < 0 ? limit : end + terminator.Length;
-        }
-
-        var quote = '\0';
-        var brackets = 0;
-        for (var position = start + 2; position < limit; position++)
-        {
-            var current = text[position];
-            if (quote != '\0') { if (current == quote) quote = '\0'; }
-            else if (current is '\'' or '"') quote = current;
-            else if (current == '[') brackets++;
-            else if (current == ']') brackets--;
-            else if (current == '>' && brackets == 0) return position + 1;
-        }
-        return limit;
-    }
-
-    private static bool StartsWith(string text, int start, int limit, string value)
-        => start + value.Length <= limit && string.CompareOrdinal(text, start, value, 0, value.Length) == 0;
-
-    public static IEnumerable<string> GetStyleNames(string text)
-    {
-        foreach (var tag in EnumerateTags(text))
-            if (!tag.IsClosing && tag.Kind == SilkyUIXmlTagKind.Style &&
-                tag.TryGetSuiAttributeValue(SilkyUIAttributeKind.Name, out var name) && !string.IsNullOrWhiteSpace(name))
-                yield return name;
     }
 
     internal static bool IsNameChar(char value)

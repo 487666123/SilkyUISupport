@@ -5,7 +5,6 @@ using System.ComponentModel.Composition;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
-using Microsoft.VisualStudio.LanguageServices;
 using Microsoft.VisualStudio.Shell;
 
 namespace SilkyUISupport;
@@ -16,13 +15,13 @@ namespace SilkyUISupport;
 [Export(typeof(AttributeClassScanner))]
 internal class AttributeClassScanner
 {
-    public async Task<List<XmlMappingClass>> GetClassesWithAttributeAsync(VisualStudioWorkspace workspace, string attributeName)
+    public async Task<List<XmlMappingClass>> GetClassesWithAttributeAsync(Solution solution, string attributeName)
     {
         var xmlMappingClasses = new List<XmlMappingClass>();
-        if (workspace?.CurrentSolution == null) return xmlMappingClasses;
+        if (solution == null) return xmlMappingClasses;
 
         // 筛选出语言为 C# 的项目
-        foreach (var project in GetCSharpProjects(workspace))
+        foreach (var project in GetCSharpProjects(solution))
         {
             // 获取项目的编译结果（包含所有符号信息）
             if (await project.GetCompilationAsync() is not { } compilation) continue;
@@ -76,12 +75,12 @@ internal class AttributeClassScanner
     }
 
     /// <summary>获取当前解决方案 C# 项目中的所有公开类，供 sui:Target 补全使用。</summary>
-    public async Task<List<SilkyUITargetClass>> GetAllPublicClassesAsync(VisualStudioWorkspace workspace)
+    public async Task<List<SilkyUITargetClass>> GetAllPublicClassesAsync(Solution solution)
     {
         var result = new List<SilkyUITargetClass>();
-        if (workspace?.CurrentSolution == null) return result;
+        if (solution == null) return result;
 
-        foreach (var project in GetCSharpProjects(workspace))
+        foreach (var project in GetCSharpProjects(solution))
         {
             if (await project.GetCompilationAsync() is not { } compilation) continue;
 
@@ -99,12 +98,12 @@ internal class AttributeClassScanner
     /// <summary>
     /// 查找继承自 UIElementGroup 的 public 类（Body Class 属性的补全源）。
     /// </summary>
-    public async Task<List<SilkyUIElementGroupClass>> GetUIElementGroupClassesAsync(VisualStudioWorkspace workspace)
+    public async Task<List<SilkyUIElementGroupClass>> GetUIElementGroupClassesAsync(Solution solution)
     {
         var result = new List<SilkyUIElementGroupClass>();
-        if (workspace?.CurrentSolution == null) return result;
+        if (solution == null) return result;
 
-        foreach (var project in GetCSharpProjects(workspace))
+        foreach (var project in GetCSharpProjects(solution))
         {
             if (await project.GetCompilationAsync() is not { } compilation) continue;
 
@@ -127,10 +126,8 @@ internal class AttributeClassScanner
         return result;
     }
 
-    private static IEnumerable<Project> GetCSharpProjects(VisualStudioWorkspace workspace)
-    {
-        return workspace.CurrentSolution.Projects.Where(p => p.Language == LanguageNames.CSharp);
-    }
+    private static IEnumerable<Project> GetCSharpProjects(Solution solution)
+        => solution.Projects.Where(project => project.Language == LanguageNames.CSharp);
 
     private static bool InheritsFrom(INamedTypeSymbol type, INamedTypeSymbol baseType)
     {

@@ -8,8 +8,8 @@ using Microsoft.VisualStudio.Text;
 namespace SilkyUISupport;
 
 /// <summary>
-/// One parsed document per immutable editor snapshot. Weak keys allow old snapshots to be collected;
-/// Lazy prevents concurrent editor features from parsing the same snapshot more than once.
+/// 每个不可变编辑器快照对应一个已解析文档。弱键允许旧快照被回收；
+/// Lazy 防止并发编辑功能多次解析同一快照。
 /// </summary>
 internal sealed class SilkyUIXmlDocument
 {
@@ -17,12 +17,13 @@ internal sealed class SilkyUIXmlDocument
     private readonly SilkyUIXmlTag[] _tags;
 
     public string Text { get; }
+    public IReadOnlyList<SilkyUIXmlTag> Tags => _tags;
     public IReadOnlyList<string> StyleNames { get; }
 
     internal SilkyUIXmlDocument(string text)
     {
         Text = text ?? string.Empty;
-        _tags = SilkyUIXmlSyntax.EnumerateTags(Text).ToArray();
+        _tags = SilkyUIXmlParser.Parse(Text);
         StyleNames = Array.AsReadOnly(_tags
             .Where(tag => !tag.IsClosing && tag.Kind == SilkyUIXmlTagKind.Style)
             .Select(tag => tag.TryGetSuiAttributeValue(SilkyUIAttributeKind.Name, out var name) ? name : null)
@@ -43,7 +44,7 @@ internal sealed class SilkyUIXmlDocument
     public SilkyUIXmlTag GetTagAtCaret(int position)
     {
         if (position <= 0 || position > Text.Length) return null;
-        // The caret is between characters: at the next '<', the previous incomplete tag still owns it.
+        // 光标位于字符之间：在下一个 '<' 处，前一个未完成的标签仍拥有光标。
         var index = FindLastStartAtOrBefore(position - 1);
         return index >= 0 && position <= _tags[index].ContentEnd ? _tags[index] : null;
     }
@@ -95,44 +96,13 @@ internal sealed class SilkyUIXmlDocument
         return low;
     }
 
-    /// <summary>
-    /// 找到指定位置之前最近的开放标签。
-    /// 调用方传入当前标签的 Start 时，当前标签不会被当作自己的父标签。
-    /// 结束标签返回与其匹配的开始标签的父元素。
-    /// </summary>
-    public SilkyUIXmlTag GetParentTag(int position)
+    /// <summary>获取指定标签所属元素的父标签；tagStart 必须是标签的起始位置。</summary>
+    public SilkyUIXmlTag GetParentTag(int tagStart)
     {
-        if (_tags.Length == 0 || position < 0) return null;
-
-        var stack = new List<SilkyUIXmlTag>();
-        var startIndex = FindFirstEndingAtOrAfter(0);
-
-        for (var i = startIndex; i < _tags.Length && _tags[i].Start < position; i++)
-        {
-            var tag = _tags[i];
-
-            if (tag.IsClosing)
-            {
-                var matchingIndex = stack.FindLastIndex(openTag => openTag.Name == tag.Name);
-                if (matchingIndex >= 0)
-                    stack.RemoveRange(matchingIndex, stack.Count - matchingIndex);
-            }
-            else if (!tag.IsSelfClosing && tag.Name.Length > 0)
-            {
-                stack.Add(tag);
-            }
-        }
-
-        var currentTag = GetTagAtPosition(position);
-        if (currentTag?.IsClosing == true && currentTag.Start == position)
-        {
-            var matchingIndex = stack.FindLastIndex(openTag => openTag.Name == currentTag.Name);
-            return matchingIndex > 0 ? stack[matchingIndex - 1] : null;
-        }
-
-        return stack.Count > 0 ? stack[stack.Count - 1] : null;
+        var index = FindLastStartAtOrBefore(tagStart);
+        return index >= 0 && _tags[index].Start == tagStart ? _tags[index].Parent : null;
     }
-    
+
     /// <summary>
     /// 找到文档的根 Body 标签。
     /// </summary>

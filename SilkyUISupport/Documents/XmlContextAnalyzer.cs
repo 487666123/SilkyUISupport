@@ -39,7 +39,7 @@ internal static class XmlContextAnalyzer
 
         context.TagStart = current.Start;
         context.TagEnd = current.IsComplete ? current.ContentEnd : -1;
-        // Complete start tags use all their declarations. An unfinished tag only exposes tokens before the caret.
+        // 完整的开始标签使用其全部声明。未完成的标签仅暴露光标之前的 token。
         context.Tag = current.IsComplete ? current : SilkyUIXmlSyntax.GetIncompletePrefix(current, position);
         context.CurrentTag = current.Name;
         if (position <= current.NameStart + current.Name.Length)
@@ -63,7 +63,8 @@ internal static class XmlContextAnalyzer
             }
             if (position >= attribute.NameStart && position <= attribute.NameEnd)
             {
-                context.CurrentAttribute = attribute.Name.Substring(0, position - attribute.NameStart);
+                var length = Math.Min(attribute.Name.Length, position - attribute.NameStart);
+                context.CurrentAttribute = attribute.Name.Substring(0, length);
                 return context;
             }
         }

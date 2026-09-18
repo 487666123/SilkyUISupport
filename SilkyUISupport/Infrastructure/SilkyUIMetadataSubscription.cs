@@ -2,10 +2,10 @@ using System;
 
 namespace SilkyUISupport;
 
-/// <summary>Keep the shared metadata service from retaining closed XML buffers.</summary>
+/// <summary>防止共享元数据服务保留已关闭的 XML 缓冲区。</summary>
 internal static class SilkyUIMetadataSubscription
 {
-    // Callers must pass a static callback so it cannot capture the subscriber.
+    // 调用者必须传递静态回调，确保不捕获订阅者。
     public static void Subscribe<T>(SilkyUIMetadataService service, T subscriber, Action<T> onRefreshed)
         where T : class
         => _ = new Subscription<T>(service, subscriber, onRefreshed);

@@ -47,6 +47,17 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<Reference Include="System.Windows.Forms" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Content Include="icon.png">
+			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
+			<IncludeInVSIX>true</IncludeInVSIX>
+		</Content>
+	</ItemGroup>
+
+	<ItemGroup>
 	  <EditorConfigFiles Remove="C:\Users\48766\Documents\VSIX Project\SilkyUISupport\SilkyUISupport\.editorconfig" />
 	</ItemGroup>
 

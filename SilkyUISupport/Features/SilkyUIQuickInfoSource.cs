@@ -43,13 +43,14 @@ internal sealed class SilkyUIQuickInfoSource(ITextBuffer textBuffer, SilkyUIMeta
         if (!SilkyUIXmlSymbolResolver.TryResolve(snapshot, position, _metadataService, out var resolution))
             return Task.FromResult<QuickInfoItem>(null);
 
-        var applicableTo = snapshot.CreateTrackingSpan(resolution.SymbolSpan, SpanTrackingMode.EdgeInclusive);
+        var applicableTo = snapshot.CreateTrackingSpan(
+            new Span(resolution.Start, resolution.Length), SpanTrackingMode.EdgeInclusive);
         return Task.FromResult(new QuickInfoItem(applicableTo, BuildContent(resolution)));
     }
 
     void IDisposable.Dispose() { }
 
-    private static object BuildContent(SilkyUISymbolResolution resolution)
+    private static object BuildContent(SilkyUISymbolInfo resolution)
     {
         return resolution.Kind switch
         {
@@ -59,7 +60,7 @@ internal sealed class SilkyUIQuickInfoSource(ITextBuffer textBuffer, SilkyUIMeta
         };
     }
 
-    private static ContainerElement BuildElementContent(SilkyUISymbolResolution resolution)
+    private static ContainerElement BuildElementContent(SilkyUISymbolInfo resolution)
     {
         var xmlMappingClass = resolution.SilkyUiClass;
         var lines = new List<object>
@@ -84,7 +85,7 @@ internal sealed class SilkyUIQuickInfoSource(ITextBuffer textBuffer, SilkyUIMeta
         return new ContainerElement(ContainerElementStyle.Stacked, lines);
     }
 
-    private static ContainerElement BuildAttributeContent(SilkyUISymbolResolution resolution)
+    private static ContainerElement BuildAttributeContent(SilkyUISymbolInfo resolution)
     {
         var property = resolution.SilkyUiProperty;
         var lines = new List<object>
