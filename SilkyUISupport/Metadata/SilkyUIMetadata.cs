@@ -22,8 +22,11 @@ internal sealed record class SilkyUIProperty(
     int SourceLine,
     int SourceColumn);
 
-/// <summary>Body Class 属性补全用的轻量模型。</summary>
+/// <summary>Body Class 属性补全和源码导航用的轻量模型。</summary>
 internal sealed record class SilkyUIElementGroupClass(
     string Name,
     string FullName,
-    ImmutableArray<SilkyUIProperty> Properties);
+    ImmutableArray<SilkyUIProperty> Properties,
+    string SourceFilePath,
+    int SourceLine,
+    int SourceColumn);

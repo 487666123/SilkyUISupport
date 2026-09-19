@@ -43,14 +43,16 @@ internal class AttributeClassScanner
                 var sourceLine = lineSpan?.StartLinePosition.Line ?? 0;
                 var sourceColumn = lineSpan?.StartLinePosition.Character ?? 0;
 
-                // 可以有多个别名, 重复别名跳过
-
-                var properties = GetPublicReadableProperties(cls).ToImmutableArray();
+                // Collect properties once, when the first valid alias needs them.
+                ImmutableArray<SilkyUIProperty> properties = default;
                 foreach (var attr in attrs)
                 {
                     if (attr.ConstructorArguments.Length == 0) continue;
                     var alias = attr.ConstructorArguments[0].Value as string;
                     if (string.IsNullOrWhiteSpace(alias)) continue;
+
+                    if (properties.IsDefault)
+                        properties = GetPublicReadableProperties(cls).ToImmutableArray();
 
                     xmlMappingClasses.Add(new XmlMappingClass(
                         cls,
@@ -116,7 +118,11 @@ internal class AttributeClassScanner
                 if (!InheritsFrom(cls, elementGroupType)) continue;
 
                 var properties = GetPublicReadableProperties(cls);
-                result.Add(new SilkyUIElementGroupClass(cls.Name, cls.ToDisplayString(), [.. properties]));
+                var sourceLocation = cls.Locations.FirstOrDefault(location => location.IsInSource);
+                var lineSpan = sourceLocation?.GetLineSpan();
+                result.Add(new SilkyUIElementGroupClass(cls.Name, cls.ToDisplayString(), [.. properties],
+                    lineSpan?.Path ?? string.Empty, lineSpan?.StartLinePosition.Line ?? 0,
+                    lineSpan?.StartLinePosition.Character ?? 0));
             }
         }
 

@@ -56,6 +56,8 @@ internal sealed class SilkyUIQuickInfoSource(ITextBuffer textBuffer, SilkyUIMeta
         {
             SilkyUISymbolKind.Element => BuildElementContent(resolution),
             SilkyUISymbolKind.Attribute => BuildAttributeContent(resolution),
+            SilkyUISymbolKind.BodyClass => BuildSignatureLine(KnownMonikers.Class, "class",
+                resolution.BodyClass.Name, resolution.BodyClass.FullName),
             _ => ClassifiedTextElement.CreatePlainText(resolution.SymbolName)
         };
     }

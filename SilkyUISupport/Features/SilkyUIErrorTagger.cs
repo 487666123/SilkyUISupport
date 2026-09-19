@@ -25,6 +25,7 @@ internal sealed class SilkyUIErrorTagger : ITagger<IErrorTag>
 {
     private readonly ITextBuffer _buffer;
     private readonly SilkyUIMetadataService _metadataService;
+    private readonly SilkyUIAnalysisCache<SilkyUIDiagnostic> _diagnostics = new(SilkyUIDiagnosticAnalyzer.Analyze);
 
     public SilkyUIErrorTagger(ITextBuffer buffer, SilkyUIMetadataService metadataService)
     {
@@ -43,8 +44,8 @@ internal sealed class SilkyUIErrorTagger : ITagger<IErrorTag>
     {
         if (spans.Count == 0) yield break;
         var snapshot = spans[0].Snapshot;
-        var model = new SilkyUISemanticModel(SilkyUIXmlDocument.Get(snapshot), _metadataService.GetSnapshot());
-        foreach (var diagnostic in SilkyUIDiagnosticAnalyzer.Analyze(model))
+        var diagnostics = _diagnostics.GetResults(SilkyUIXmlDocument.Get(snapshot), _metadataService.GetSnapshot());
+        foreach (var diagnostic in diagnostics)
         {
             var span = new SnapshotSpan(snapshot, diagnostic.Start, diagnostic.Length);
             if (spans.IntersectsWith(span))

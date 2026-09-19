@@ -22,6 +22,7 @@ internal sealed class SilkyUIAttributeClassifier : IClassifier
 {
     private readonly ITextBuffer _buffer;
     private readonly SilkyUIMetadataService _metadataService;
+    private readonly SilkyUIAnalysisCache<SilkyUIClassification> _classifications = new(SilkyUIClassificationService.GetClassifications);
     private readonly IClassificationType _elementType;
     private readonly IClassificationType _unknownElementType;
     private readonly IClassificationType _attributeType;
@@ -46,9 +47,9 @@ internal sealed class SilkyUIAttributeClassifier : IClassifier
     public IList<ClassificationSpan> GetClassificationSpans(SnapshotSpan requestedSpan)
     {
         var snapshot = requestedSpan.Snapshot;
-        var model = new SilkyUISemanticModel(SilkyUIXmlDocument.Get(snapshot), _metadataService.GetSnapshot());
+        var classifications = _classifications.GetResults(SilkyUIXmlDocument.Get(snapshot), _metadataService.GetSnapshot());
         var result = new List<ClassificationSpan>();
-        foreach (var classification in SilkyUIClassificationService.GetClassifications(model))
+        foreach (var classification in classifications)
         {
             var span = new SnapshotSpan(snapshot, classification.Start, classification.Length);
             if (requestedSpan.IntersectsWith(span)) result.Add(new ClassificationSpan(span, GetType(classification.Kind)));

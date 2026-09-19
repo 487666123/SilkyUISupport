@@ -70,7 +70,11 @@ internal static class SilkyUIXmlParser
                 if (closing == null) continue;
                 // 恢复机制可能将不匹配的结束标签附加到缺失开始标签的元素上。
                 // 只有真正匹配的标签对才能提供成员导航的父级关系。
-                if (opening != null && closing.Name == opening.Name) closing.Parent = parent;
+                if (opening != null && closing.Name == opening.Name)
+                {
+                    closing.Parent = parent;
+                    closing.MatchingOpeningTag = opening;
+                }
                 tags.Add(closing);
             }
             else if (node is XmlEmptyElementSyntax empty)

@@ -8,7 +8,7 @@ namespace SilkyUISupport;
 
 internal enum SilkyUICompletionItemKind { Class, Property, Enumeration }
 internal enum SilkyUISemanticAttributeKind { Unknown, Namespace, Directive, Binding, Property, UnsupportedNamespace }
-internal enum SilkyUISymbolKind { Element, Member, Attribute }
+internal enum SilkyUISymbolKind { Element, Member, Attribute, BodyClass }
 
 /// <summary>独立于 SDK 的补全数据；Visual Studio 适配器负责展示细节。</summary>
 internal sealed record SilkyUICompletionItem(
@@ -26,7 +26,9 @@ internal sealed record SilkyUISymbolInfo(
 {
     public SilkyUINavigationTarget NavigationTarget => SilkyUiProperty != null
         ? new(SilkyUiProperty.SourceFilePath, SilkyUiProperty.SourceLine, SilkyUiProperty.SourceColumn)
-        : SilkyUiClass == null ? null : new(SilkyUiClass.SourceFilePath, SilkyUiClass.SourceLine, SilkyUiClass.SourceColumn);
+        : SilkyUiClass != null
+            ? new(SilkyUiClass.SourceFilePath, SilkyUiClass.SourceLine, SilkyUiClass.SourceColumn)
+            : BodyClass == null ? null : new(BodyClass.SourceFilePath, BodyClass.SourceLine, BodyClass.SourceColumn);
 }
 
 internal sealed record SilkyUIElementInfo(

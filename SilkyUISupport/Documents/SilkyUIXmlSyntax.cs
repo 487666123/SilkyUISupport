@@ -75,6 +75,7 @@ internal sealed class SilkyUIXmlTag
     public SilkyUIXmlNamespaceScope Scope { get; set; }
     public SilkyUIXmlNamespaceScope InheritedScope { get; set; }
     public SilkyUIXmlTag Parent { get; set; }
+    public SilkyUIXmlTag MatchingOpeningTag { get; set; }
 
     public SilkyUIXmlTagKind Kind => SilkyUIXmlSyntax.GetTagKind(Name, Scope);
 
@@ -185,6 +186,7 @@ internal static class SilkyUIXmlSyntax
             Name = tag.Name.Substring(0, Math.Max(0, Math.Min(tag.Name.Length, position - tag.NameStart))),
             ContentEnd = position, End = position, IsClosing = tag.IsClosing,
             Attributes = attributes, Parent = tag.Parent, InheritedScope = tag.InheritedScope,
+            MatchingOpeningTag = tag.MatchingOpeningTag,
             Scope = CreateScope(tag.InheritedScope, attributes)
         };
     }

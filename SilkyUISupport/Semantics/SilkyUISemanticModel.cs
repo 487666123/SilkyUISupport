@@ -9,6 +9,9 @@ namespace SilkyUISupport;
 /// <summary>绑定一个 XML 文档快照与一个不可变 C# 元数据快照。</summary>
 internal sealed class SilkyUISemanticModel
 {
+    // Tag identity keeps caret-specific projections separate from the parsed tag.
+    private readonly Dictionary<SilkyUIXmlTag, SilkyUIElementInfo> _elements = new();
+
     public SilkyUISemanticModel(SilkyUIXmlDocument document, SilkyUIMetadataSnapshot metadata)
     {
         Document = document;
@@ -21,7 +24,9 @@ internal sealed class SilkyUISemanticModel
     public SilkyUIElementInfo ResolveElement(SilkyUIXmlTag tag)
     {
         if (tag == null) return new(null, false, null, null, [], null);
-        return tag.Kind switch
+        if (_elements.TryGetValue(tag, out var element)) return element;
+
+        element = tag.Kind switch
         {
             SilkyUIXmlTagKind.Body => ResolveBody(tag),
             SilkyUIXmlTagKind.Ordinary => ResolveOrdinary(tag),
@@ -29,6 +34,8 @@ internal sealed class SilkyUISemanticModel
             SilkyUIXmlTagKind.Style => new(tag, true, null, null, ResolveStyleProperties(tag), null),
             _ => new(tag, false, null, null, [], null)
         };
+        _elements.Add(tag, element);
+        return element;
     }
 
     public SilkyUIAttributeInfo ResolveAttribute(SilkyUIXmlTag tag, SilkyUIXmlAttribute attribute)
@@ -84,6 +91,14 @@ internal sealed class SilkyUISemanticModel
 
         if (position >= tag.NameStart && position < tag.NameStart + tag.Name.Length)
         {
+            if (tag.Kind == SilkyUIXmlTagKind.Body)
+            {
+                var bodyClass = tag.IsClosing ? ResolveElement(tag.MatchingOpeningTag).BodyClass : element.BodyClass;
+                if (bodyClass == null) return false;
+                symbol = new(SilkyUISymbolKind.BodyClass, tag.NameStart, tag.Name.Length, tag.Name, tag.Name,
+                    null, null, bodyClass);
+                return true;
+            }
             if (tag.Kind == SilkyUIXmlTagKind.Ordinary && element.MappingClass != null)
             {
                 symbol = new(SilkyUISymbolKind.Element, tag.NameStart, tag.Name.Length, tag.Name, tag.Name,
@@ -102,6 +117,17 @@ internal sealed class SilkyUISemanticModel
         if (tag.IsClosing) return false;
         foreach (var attribute in tag.Attributes)
         {
+            if (tag.Kind == SilkyUIXmlTagKind.Body && attribute.ValueStart >= 0 && attribute.ValueComplete &&
+                position >= attribute.ValueStart && position < attribute.ValueStart + attribute.Value.Length &&
+                SilkyUIXmlSyntax.GetSuiAttributeKind(tag.Scope, attribute.Name) == SilkyUIAttributeKind.Class)
+            {
+                var bodyClass = Metadata.GetGroupClassByName(attribute.Value);
+                if (bodyClass == null) return false;
+                symbol = new(SilkyUISymbolKind.BodyClass, attribute.ValueStart, attribute.Value.Length,
+                    attribute.Value, tag.Name, null, null, bodyClass);
+                return true;
+            }
+
             if (position < attribute.NameStart || position >= attribute.NameEnd) continue;
             if (attribute.ValueStart < 0) return false;
             var resolved = ResolveAttribute(tag, attribute);

@@ -26,10 +26,18 @@ internal sealed class SilkyUICompletionSet(
                 ContainsIgnoreCase(completion.DisplayText, input) ||
                 ContainsIgnoreCase(completion.InsertionText, input));
 
-        WritableCompletions.Clear();
-        foreach (var completion in matches)
+        WritableCompletions.BeginBulkOperation();
+        try
         {
-            WritableCompletions.Add(completion);
+            WritableCompletions.Clear();
+            foreach (var completion in matches)
+            {
+                WritableCompletions.Add(completion);
+            }
+        }
+        finally
+        {
+            WritableCompletions.EndBulkOperation();
         }
 
         if (WritableCompletions.Count > 0) SelectBestMatch();
