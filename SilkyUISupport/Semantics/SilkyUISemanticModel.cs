@@ -16,10 +16,18 @@ internal sealed class SilkyUISemanticModel
     {
         Document = document;
         Metadata = metadata;
+        ClrProject = metadata.GetClrProject(document.FilePath);
+        var root = document.Tags.FirstOrDefault(tag => !tag.IsClosing && tag.Parent == null);
+        if (root != null && root.TryGetSuiAttributeValue(SilkyUIAttributeKind.Class, out var className) &&
+            !string.IsNullOrWhiteSpace(className))
+            ClrAccessContext = ClrProject?.Compilation.Assembly.GetTypeByMetadataName(className);
+        ClrAccessContext ??= ClrProject?.Compilation.Assembly;
     }
 
     public SilkyUIXmlDocument Document { get; }
     public SilkyUIMetadataSnapshot Metadata { get; }
+    public SilkyUIClrProject ClrProject { get; }
+    public ISymbol ClrAccessContext { get; }
 
     public SilkyUIElementInfo ResolveElement(SilkyUIXmlTag tag)
     {
@@ -121,7 +129,7 @@ internal sealed class SilkyUISemanticModel
                 position >= attribute.ValueStart && position < attribute.ValueStart + attribute.Value.Length &&
                 SilkyUIXmlSyntax.GetSuiAttributeKind(tag.Scope, attribute.Name) == SilkyUIAttributeKind.Class)
             {
-                var bodyClass = Metadata.GetGroupClassByName(attribute.Value);
+                var bodyClass = element.BodyClass;
                 if (bodyClass == null) return false;
                 symbol = new(SilkyUISymbolKind.BodyClass, attribute.ValueStart, attribute.Value.Length,
                     attribute.Value, tag.Name, null, null, bodyClass);
@@ -145,20 +153,46 @@ internal sealed class SilkyUISemanticModel
     private SilkyUIElementInfo ResolveBody(SilkyUIXmlTag tag)
     {
         tag.TryGetSuiAttributeValue(SilkyUIAttributeKind.Class, out var className);
-        var bodyClass = Metadata.GetGroupClassByName(className);
+        SilkyUIElementGroupClass bodyClass = string.IsNullOrEmpty(Document.FilePath)
+            ? Metadata.GetGroupClassByName(className) : null;
+        if (!string.IsNullOrWhiteSpace(className) &&
+            ClrProject?.Compilation.Assembly.GetTypeByMetadataName(className) is { } type)
+        {
+            var line = type.Locations.FirstOrDefault(location => location.IsInSource)?.GetLineSpan();
+            bodyClass = new(type.Name, type.ToDisplayString(), [.. GetReadableProperties(type)],
+                line?.Path ?? string.Empty, line?.StartLinePosition.Line ?? 0, line?.StartLinePosition.Character ?? 0);
+        }
         return new(tag, true, null, bodyClass, bodyClass == null ? [] : [.. bodyClass.Properties], null);
     }
 
     private SilkyUIElementInfo ResolveOrdinary(SilkyUIXmlTag tag)
     {
-        var mapped = Metadata.GetClassByName(tag.Name);
+        var prefix = SilkyUIXmlSyntax.GetPrefix(tag.Name);
+        var uri = tag.Scope?.Resolve(prefix) ?? string.Empty;
+        XmlMappingClass mapped;
+        if (SilkyUIClrNamespace.IsClrNamespace(uri))
+        {
+            if (ClrProject == null)
+                return new(tag, false, null, null, [], null, "无法确定此 XML 所属的 C# 项目，或项目元数据尚未就绪");
+            var type = ClrProject.ResolveType(uri, SilkyUIXmlSyntax.GetLocalName(tag.Name), ClrAccessContext, out var error);
+            if (type == null) return new(tag, false, null, null, [], null, error);
+            var line = type.Locations.FirstOrDefault(location => location.IsInSource)?.GetLineSpan();
+            mapped = new(type, [.. GetReadableProperties(type)], tag.Name, line?.Path ?? string.Empty,
+                line?.StartLinePosition.Line ?? 0, line?.StartLinePosition.Character ?? 0);
+        }
+        else
+        {
+            if (uri.Length > 0 || prefix.Length > 0)
+                return new(tag, false, null, null, [], null, uri.Length > 0
+                    ? $"不支持元素命名空间 '{uri}'" : $"未声明命名空间前缀 '{prefix}'");
+            mapped = Metadata.GetClassByName(tag.Name);
+        }
         return new(tag, mapped != null, mapped, null, mapped == null ? [] : [.. mapped.Properties], null);
     }
 
     private SilkyUIElementInfo ResolveMember(SilkyUIXmlTag tag)
     {
-        if (tag.Name.Length <= 2) return new(tag, true, null, null, [], null);
-        var member = FindProperty(GetParentProperties(tag), tag.Name.Substring(2));
+        var member = FindProperty(GetParentProperties(tag), SilkyUIXmlSyntax.GetLocalName(tag.Name));
         if (member == null || !IsExpandableMemberProperty(member.Property))
             return new(tag, false, null, null, [], null);
         return new(tag, true, null, null, GetReadableProperties(member.Property.Type), member);

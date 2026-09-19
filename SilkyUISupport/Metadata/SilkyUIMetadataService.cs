@@ -128,12 +128,15 @@ internal class SilkyUIMetadataService : IPartImportsSatisfiedNotification
                 target => (ImmutableList<SilkyUIProperty>)[.. ClassScanner.GetPublicReadableProperties(target.Class)],
                 StringComparer.Ordinal));
 
+            var clrProjects = await Task.Run(() => SilkyUIClrProjectIndex.CreateAsync(solution));
+
             var snapshot = new SilkyUIMetadataSnapshot(
                 classes,
                 groupClasses,
                 BuildStyleProperties(classes),
                 targetClasses,
-                targetProperties);
+                targetProperties,
+                clrProjects);
             Interlocked.Exchange(ref _snapshot, snapshot);
             Refreshed?.Invoke();
         }

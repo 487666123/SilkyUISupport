@@ -22,16 +22,7 @@ internal static class SilkyUICompletionEngine
         switch (context.ContextType)
         {
             case XmlContextType.TagName:
-                if (context.CurrentTag == "M" || context.CurrentTag.StartsWith("M.", StringComparison.Ordinal))
-                    AddMembers(items, model.GetExpandableParentProperties(tag));
-                else
-                {
-                    Add(items, "Body", "Body", "根元素", SilkyUICompletionItemKind.Class);
-                    foreach (var prefix in suiPrefixes) AddDirective(items, prefix, "Style", "SilkyUI 样式元素");
-                    foreach (var mapped in model.Metadata.Classes)
-                        Add(items, mapped.Alias, mapped.Alias, mapped.Class.ToDisplayString(), SilkyUICompletionItemKind.Class,
-                            mapped.Class.ToDisplayString());
-                }
+                AddElementItems(items, model, context, suiPrefixes);
                 break;
             case XmlContextType.AttributeName:
                 AddAttributeNameItems(items, model, context, suiPrefixes, bindingPrefixes);
@@ -43,11 +34,54 @@ internal static class SilkyUICompletionEngine
         return [.. items];
     }
 
+    private static void AddElementItems(List<SilkyUICompletionItem> items, SilkyUISemanticModel model,
+        XmlContext context, IEnumerable<string> suiPrefixes)
+    {
+        var hasPrefix = context.CurrentTag.IndexOf(':') >= 0;
+        var typedPrefix = SilkyUIXmlSyntax.GetPrefix(context.CurrentTag);
+        var scope = context.Tag?.Scope;
+        if (!hasPrefix && string.IsNullOrEmpty(scope?.Resolve(string.Empty)))
+        {
+            Add(items, "Body", "Body", "根元素", SilkyUICompletionItemKind.Class);
+            foreach (var mapped in model.Metadata.Classes)
+                Add(items, mapped.Alias, mapped.Alias, mapped.Class.ToDisplayString(), SilkyUICompletionItemKind.Class,
+                    mapped.Class.ToDisplayString());
+        }
+        foreach (var prefix in suiPrefixes)
+            if (!hasPrefix || prefix == typedPrefix) AddDirective(items, prefix, "Style", "SilkyUI 样式元素");
+
+        if (scope == null) return;
+        foreach (var declaration in scope.GetDeclarations())
+            if (declaration.Value == SilkyUIXmlSyntax.PropertiesNamespaceUri &&
+                (!hasPrefix || declaration.Key == typedPrefix))
+                AddMembers(items, declaration.Key, model.GetExpandableParentProperties(context.Tag));
+
+        if (model.ClrProject == null) return;
+        foreach (var declaration in scope.GetDeclarations())
+        {
+            if (!SilkyUIClrNamespace.IsClrNamespace(declaration.Value) ||
+                (hasPrefix && declaration.Key != typedPrefix)) continue;
+            foreach (var type in model.ClrProject.GetTypes(declaration.Value, model.ClrAccessContext, out _))
+            {
+                var name = declaration.Key.Length == 0 ? type.Name : declaration.Key + ":" + type.Name;
+                Add(items, name, name, type.ToDisplayString(), SilkyUICompletionItemKind.Class,
+                    type.ContainingAssembly.Name);
+            }
+        }
+    }
+
     private static void AddAttributeNameItems(List<SilkyUICompletionItem> items, SilkyUISemanticModel model,
         XmlContext context, IEnumerable<string> suiPrefixes, IEnumerable<string> bindingPrefixes)
     {
         var tag = context.Tag;
         if (tag == null) return;
+        var prefix = SilkyUIXmlSyntax.GetPrefix(context.CurrentAttribute);
+        var hasColon = context.CurrentAttribute.IndexOf(':') >= 0;
+        if (tag.Parent == null && !tag.IsClosing)
+            foreach (var suiPrefix in suiPrefixes)
+                if (!hasColon || prefix == suiPrefix)
+                    AddDirective(items, suiPrefix, "Class", "指定 UIElementGroup 子类全名");
+
         var element = model.ResolveElement(tag);
         if (tag.Kind == SilkyUIXmlTagKind.Style)
         {
@@ -60,8 +94,6 @@ internal static class SilkyUICompletionEngine
             return;
         }
 
-        var prefix = SilkyUIXmlSyntax.GetPrefix(context.CurrentAttribute);
-        var hasColon = context.CurrentAttribute.IndexOf(':') >= 0;
         var canBind = model.CanBind(tag);
         if (canBind && hasColon && bindingPrefixes.Contains(prefix, StringComparer.Ordinal))
         {
@@ -79,8 +111,7 @@ internal static class SilkyUICompletionEngine
         foreach (var suiPrefix in suiPrefixes)
         {
             if (hasColon && prefix != suiPrefix) continue;
-            if (tag.Kind == SilkyUIXmlTagKind.Body) AddDirective(items, suiPrefix, "Class", "指定 UIElementGroup 子类全名");
-            else if (tag.Kind == SilkyUIXmlTagKind.Ordinary) AddDirective(items, suiPrefix, "Name", "生成 C# 控件属性");
+            if (tag.Kind == SilkyUIXmlTagKind.Ordinary) AddDirective(items, suiPrefix, "Name", "生成 C# 控件属性");
             if (tag.Kind is SilkyUIXmlTagKind.Body or SilkyUIXmlTagKind.Ordinary or SilkyUIXmlTagKind.Member)
                 AddDirective(items, suiPrefix, "Style", "引用一个或多个样式");
         }
@@ -91,8 +122,7 @@ internal static class SilkyUICompletionEngine
     {
         if (SilkyUIXmlSyntax.IsNamespaceDeclaration(context.CurrentAttribute))
         {
-            Add(items, SilkyUIXmlSyntax.NamespaceUri, SilkyUIXmlSyntax.NamespaceUri, "SilkyUIFramework 命名空间 URI", SilkyUICompletionItemKind.Property);
-            Add(items, SilkyUIXmlSyntax.BindingNamespaceUri, SilkyUIXmlSyntax.BindingNamespaceUri, "SilkyUIFramework 绑定命名空间 URI", SilkyUICompletionItemKind.Property);
+            AddNamespaceItems(items, model, context.CurrentValue);
             return;
         }
 
@@ -106,10 +136,12 @@ internal static class SilkyUICompletionEngine
                 Add(items, target.Class.Name, target.FullName, target.FullName, SilkyUICompletionItemKind.Class, target.FullName);
             return;
         }
-        if (tag.Kind == SilkyUIXmlTagKind.Body && attribute.DirectiveKind == SilkyUIAttributeKind.Class)
+        if (tag.Parent == null && !tag.IsClosing && attribute.DirectiveKind == SilkyUIAttributeKind.Class)
         {
             foreach (var group in model.Metadata.GroupClasses)
-                Add(items, group.Name, group.FullName, group.FullName, SilkyUICompletionItemKind.Class, group.FullName);
+                if (model.ClrProject?.Compilation.Assembly.GetTypeByMetadataName(group.FullName) != null ||
+                    string.IsNullOrEmpty(model.Document.FilePath))
+                    Add(items, group.Name, group.FullName, group.FullName, SilkyUICompletionItemKind.Class, group.FullName);
             return;
         }
         if (attribute.DirectiveKind == SilkyUIAttributeKind.Style)
@@ -123,11 +155,31 @@ internal static class SilkyUICompletionEngine
         foreach (var value in property.Enums) Add(items, value, value, value, SilkyUICompletionItemKind.Enumeration);
     }
 
-    private static void AddMembers(List<SilkyUICompletionItem> items, IEnumerable<SilkyUIProperty> properties)
+    private static void AddNamespaceItems(List<SilkyUICompletionItem> items, SilkyUISemanticModel model, string input)
+    {
+        const string clrPrefix = "clr-namespace:";
+        if (!input.StartsWith(clrPrefix, StringComparison.Ordinal))
+        {
+            Add(items, SilkyUIXmlSyntax.NamespaceUri, SilkyUIXmlSyntax.NamespaceUri, "SilkyUIFramework 命名空间 URI", SilkyUICompletionItemKind.Property);
+            Add(items, SilkyUIXmlSyntax.BindingNamespaceUri, SilkyUIXmlSyntax.BindingNamespaceUri, "SilkyUIFramework 绑定命名空间 URI", SilkyUICompletionItemKind.Property);
+            Add(items, SilkyUIXmlSyntax.PropertiesNamespaceUri, SilkyUIXmlSyntax.PropertiesNamespaceUri, "SilkyUIFramework 属性节点命名空间 URI", SilkyUICompletionItemKind.Property);
+            Add(items, clrPrefix, clrPrefix, "从 C# 命名空间导入类型", SilkyUICompletionItemKind.Property);
+            return;
+        }
+
+        if (input.IndexOf(';') >= 0 || model.ClrProject == null) return;
+        foreach (var ns in model.ClrProject.GetNamespaceNames())
+            Add(items, clrPrefix + ns, clrPrefix + ns, "当前项目可见的 CLR 命名空间", SilkyUICompletionItemKind.Property);
+    }
+
+    private static void AddMembers(List<SilkyUICompletionItem> items, string prefix, IEnumerable<SilkyUIProperty> properties)
     {
         foreach (var property in properties)
-            Add(items, $"M.{property.Property.Name}", $"M.{property.Property.Name}",
-                property.Property.Type.ToDisplayString(), SilkyUICompletionItemKind.Property, property.Property.Type.ToDisplayString());
+        {
+            var name = prefix.Length == 0 ? property.Property.Name : prefix + ":" + property.Property.Name;
+            Add(items, name, name, property.Property.Type.ToDisplayString(),
+                SilkyUICompletionItemKind.Property, property.Property.Type.ToDisplayString());
+        }
     }
 
     private static void AddProperties(List<SilkyUICompletionItem> items, IEnumerable<SilkyUIProperty> properties, bool requireWritable)
@@ -167,10 +219,23 @@ internal static class SilkyUIDiagnosticAnalyzer
         foreach (var tag in model.Document.Tags)
         {
             if (tag.IsClosing || tag.Name.Length == 0) continue;
+            foreach (var declaration in tag.Attributes)
+            {
+                if (!declaration.ValueComplete || !SilkyUIXmlSyntax.IsNamespaceDeclaration(declaration.Name)) continue;
+                var prefix = declaration.Name == "xmlns" ? string.Empty : declaration.Name.Substring(6);
+                var uri = tag.Scope.Resolve(prefix);
+                if (!uri.StartsWith("clr-namespace", StringComparison.Ordinal)) continue;
+                var parsed = SilkyUIClrNamespace.TryParse(uri, out _, out var error);
+                if (parsed)
+                    error = model.ClrProject == null
+                        ? "无法确定此 XML 所属的 C# 项目，或项目元数据尚未就绪"
+                        : model.ClrProject.ValidateNamespace(uri);
+                if (error != null) diagnostics.Add(ValueDiagnostic(declaration, error));
+            }
             var element = model.ResolveElement(tag);
             if (!element.IsKnown)
             {
-                diagnostics.Add(new(tag.NameStart, tag.Name.Length, $"未知元素 '{tag.Name}'"));
+                diagnostics.Add(new(tag.NameStart, tag.Name.Length, element.Error ?? $"未知元素 '{tag.Name}'"));
                 continue;
             }
 

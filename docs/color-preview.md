@@ -2,7 +2,7 @@
 
 ### 功能说明
 
-当 XML 属性的类型为 `Microsoft.Xna.Framework.Color` 时，编辑器会在属性值前面显示可点击的颜色图标。包括普通元素和逐层嵌套的 `M.*` 成员元素中的 Color 属性。
+当 XML 属性的类型为 `Microsoft.Xna.Framework.Color` 时，编辑器会在属性值前面显示可点击的颜色图标。包括普通元素和逐层嵌套的 Properties 命名空间（推荐 `prop:*`）的成员元素中的 Color 属性。
 
 ### 支持的颜色格式
 

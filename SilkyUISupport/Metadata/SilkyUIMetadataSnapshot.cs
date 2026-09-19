@@ -10,6 +10,7 @@ internal sealed class SilkyUIMetadataSnapshot
     public static SilkyUIMetadataSnapshot Empty { get; } = new([], [], [], [],
         ImmutableDictionary<string, ImmutableList<SilkyUIProperty>>.Empty);
 
+    private readonly SilkyUIClrProjectIndex _clrProjects;
     private readonly ImmutableDictionary<string, XmlMappingClass> _classesByAlias;
     private readonly ImmutableDictionary<string, SilkyUIElementGroupClass> _groupsByFullName;
     private readonly ImmutableDictionary<string, SilkyUIElementGroupClass> _groupsByName;
@@ -19,8 +20,10 @@ internal sealed class SilkyUIMetadataSnapshot
         ImmutableList<SilkyUIElementGroupClass> groupClasses,
         ImmutableList<SilkyUIProperty> styleProperties,
         ImmutableList<SilkyUITargetClass> targetClasses,
-        ImmutableDictionary<string, ImmutableList<SilkyUIProperty>> targetProperties)
+        ImmutableDictionary<string, ImmutableList<SilkyUIProperty>> targetProperties,
+        SilkyUIClrProjectIndex clrProjects = null)
     {
+        _clrProjects = clrProjects ?? SilkyUIClrProjectIndex.Empty;
         Classes = classes;
         GroupClasses = groupClasses;
         StyleProperties = styleProperties;
@@ -36,6 +39,8 @@ internal sealed class SilkyUIMetadataSnapshot
     public ImmutableList<SilkyUIProperty> StyleProperties { get; }
     public ImmutableList<SilkyUITargetClass> TargetClasses { get; }
     private ImmutableDictionary<string, ImmutableList<SilkyUIProperty>> TargetProperties { get; }
+
+    public SilkyUIClrProject GetClrProject(string filePath) => _clrProjects.GetProject(filePath);
 
     public XmlMappingClass GetClassByName(string className)
         => string.IsNullOrWhiteSpace(className) || !_classesByAlias.TryGetValue(className, out var mapped)

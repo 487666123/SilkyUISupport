@@ -11,6 +11,9 @@ internal class XmlContext
     public XmlContextType ContextType { get; set; }
     public string CurrentTag { get; set; } = string.Empty;
     public string CurrentAttribute { get; set; } = string.Empty;
+    public string CurrentValue { get; set; } = string.Empty;
+    public int ValueStart { get; set; } = -1;
+    public int ValueEnd { get; set; } = -1;
     public int TagStart { get; set; } = -1;
     public int TagEnd { get; set; } = -1;
     public SilkyUIXmlTag Tag { get; set; }
@@ -59,6 +62,9 @@ internal static class XmlContextAnalyzer
             {
                 context.ContextType = XmlContextType.AttributeValue;
                 context.CurrentAttribute = attribute.Name;
+                context.CurrentValue = attribute.Value.Substring(0, position - attribute.ValueStart);
+                context.ValueStart = attribute.ValueStart;
+                context.ValueEnd = attribute.ValueStart + attribute.Value.Length;
                 return context;
             }
             if (position >= attribute.NameStart && position <= attribute.NameEnd)

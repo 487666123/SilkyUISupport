@@ -17,11 +17,13 @@ internal sealed class SilkyUIXmlDocument
     private readonly SilkyUIXmlTag[] _tags;
 
     public string Text { get; }
+    public string FilePath { get; }
     public IReadOnlyList<SilkyUIXmlTag> Tags => _tags;
     public IReadOnlyList<string> StyleNames { get; }
 
-    internal SilkyUIXmlDocument(string text)
+    internal SilkyUIXmlDocument(string text, string filePath = null)
     {
+        FilePath = filePath;
         Text = text ?? string.Empty;
         _tags = SilkyUIXmlParser.Parse(Text);
         StyleNames = Array.AsReadOnly(_tags
@@ -32,8 +34,18 @@ internal sealed class SilkyUIXmlDocument
     }
 
     public static SilkyUIXmlDocument Get(ITextSnapshot snapshot)
-        => Cache.GetValue(snapshot, key => new Lazy<SilkyUIXmlDocument>(
-            () => new SilkyUIXmlDocument(key.GetText()), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+    {
+        var path = snapshot.TextBuffer.Properties.TryGetProperty(typeof(ITextDocument), out ITextDocument document)
+            ? document.FilePath : null;
+        var parsed = Cache.GetValue(snapshot, key => new Lazy<SilkyUIXmlDocument>(
+            () => new SilkyUIXmlDocument(key.GetText(), path), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+        if (string.Equals(parsed.FilePath, path, StringComparison.OrdinalIgnoreCase)) return parsed;
+
+        // Save As 可以改变所属项目而不改变文本快照。
+        Cache.Remove(snapshot);
+        return Cache.GetValue(snapshot, key => new Lazy<SilkyUIXmlDocument>(
+            () => new SilkyUIXmlDocument(key.GetText(), path), LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+    }
 
     public SilkyUIXmlTag GetTagAtPosition(int position)
     {

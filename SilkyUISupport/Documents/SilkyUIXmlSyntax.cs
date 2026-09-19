@@ -51,6 +51,14 @@ internal sealed class SilkyUIXmlNamespaceScope
         return string.Empty;
     }
 
+    public IEnumerable<KeyValuePair<string, string>> GetDeclarations()
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        for (var scope = this; scope != null; scope = scope._parent)
+            foreach (var declaration in scope._declarations)
+                if (seen.Add(declaration.Key)) yield return declaration;
+    }
+
     public IEnumerable<string> GetPrefixes(string uri)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -77,7 +85,10 @@ internal sealed class SilkyUIXmlTag
     public SilkyUIXmlTag Parent { get; set; }
     public SilkyUIXmlTag MatchingOpeningTag { get; set; }
 
-    public SilkyUIXmlTagKind Kind => SilkyUIXmlSyntax.GetTagKind(Name, Scope);
+    public SilkyUIXmlTagKind Kind =>
+        (IsClosing && MatchingOpeningTag?.Kind == SilkyUIXmlTagKind.Body) ||
+        (!IsClosing && Parent == null && TryGetSuiAttributeValue(SilkyUIAttributeKind.Class, out _))
+            ? SilkyUIXmlTagKind.Body : SilkyUIXmlSyntax.GetTagKind(Name, Scope);
 
     public bool TryGetSuiAttributeValue(SilkyUIAttributeKind kind, out string value)
     {
@@ -96,6 +107,7 @@ internal static class SilkyUIXmlSyntax
 {
     public const string NamespaceUri = "https://github.com/487666123/SilkyUIFramework";
     public const string BindingNamespaceUri = "https://github.com/487666123/SilkyUIFramework/Binding";
+    public const string PropertiesNamespaceUri = "https://github.com/487666123/SilkyUIFramework/Properties";
 
     public static bool IsNamespaceDeclaration(string name)
         => name == "xmlns" || name?.StartsWith("xmlns:", StringComparison.Ordinal) == true;
@@ -112,19 +124,15 @@ internal static class SilkyUIXmlSyntax
         return separator < 0 ? string.Empty : name.Substring(0, separator);
     }
 
-    public static bool IsMemberElementName(string name)
-        => !string.IsNullOrEmpty(name) && name.IndexOf(':') < 0 && name.StartsWith("M.", StringComparison.Ordinal);
-
-    public static bool IsOrdinaryElementName(string name)
-        => !string.IsNullOrEmpty(name) && name.IndexOf(':') < 0 && name != "Body" && !IsMemberElementName(name);
-
     public static SilkyUIXmlTagKind GetTagKind(string name, SilkyUIXmlNamespaceScope scope)
     {
-        if (name == "Body") return SilkyUIXmlTagKind.Body;
-        if (IsMemberElementName(name)) return SilkyUIXmlTagKind.Member;
+        if (string.IsNullOrEmpty(name)) return SilkyUIXmlTagKind.Unknown;
+        var uri = scope?.Resolve(GetPrefix(name)) ?? string.Empty;
+        if (uri == PropertiesNamespaceUri) return SilkyUIXmlTagKind.Member;
+        if (name == "Body" && uri.Length == 0) return SilkyUIXmlTagKind.Body;
         if (GetLocalName(name) == "Style" && IsPrefixFor(scope, GetPrefix(name), NamespaceUri))
             return SilkyUIXmlTagKind.Style;
-        return IsOrdinaryElementName(name) ? SilkyUIXmlTagKind.Ordinary : SilkyUIXmlTagKind.Unknown;
+        return SilkyUIXmlTagKind.Ordinary;
     }
 
     public static bool IsPrefixFor(SilkyUIXmlNamespaceScope scope, string prefix, string uri)

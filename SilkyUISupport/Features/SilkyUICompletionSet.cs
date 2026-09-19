@@ -13,13 +13,17 @@ internal sealed class SilkyUICompletionSet(
     string moniker,
     string displayName,
     ITrackingSpan applicableTo,
-    IEnumerable<Completion> completions) : CompletionSet(moniker, displayName, applicableTo, completions, null)
+    IEnumerable<Completion> completions, ITrackingPoint filterEnd = null) : CompletionSet(moniker, displayName, applicableTo, completions, null)
 {
     private readonly IReadOnlyList<Completion> _allCompletions = [.. completions];
 
     public override void Filter()
     {
-        var input = ApplicableTo.GetText(ApplicableTo.TextBuffer.CurrentSnapshot);
+        var snapshot = ApplicableTo.TextBuffer.CurrentSnapshot;
+        var span = ApplicableTo.GetSpan(snapshot);
+        var end = filterEnd == null ? span.End.Position
+            : Math.Max(span.Start.Position, Math.Min(span.End.Position, filterEnd.GetPoint(snapshot).Position));
+        var input = snapshot.GetText(Span.FromBounds(span.Start.Position, end));
         var matches = string.IsNullOrEmpty(input)
             ? _allCompletions
             : _allCompletions.Where(completion =>

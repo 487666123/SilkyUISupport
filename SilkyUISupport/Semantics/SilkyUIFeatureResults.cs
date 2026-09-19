@@ -34,7 +34,7 @@ internal sealed record SilkyUISymbolInfo(
 internal sealed record SilkyUIElementInfo(
     SilkyUIXmlTag Tag, bool IsKnown, XmlMappingClass MappingClass,
     SilkyUIElementGroupClass BodyClass, ImmutableList<SilkyUIProperty> Properties,
-    SilkyUIProperty MemberProperty);
+    SilkyUIProperty MemberProperty, string Error = null);
 
 internal sealed record SilkyUIAttributeInfo(
     SilkyUIXmlAttribute Attribute, SilkyUISemanticAttributeKind Kind, SilkyUIProperty Property,

@@ -41,7 +41,10 @@ internal sealed class SilkyUICompletionSource(ITextBuffer textBuffer, SilkyUIMet
             completions.AddRange(completionSets[0].Completions);
             completionSets.RemoveAt(0);
         }
-        completionSets.Insert(0, new SilkyUICompletionSet("SilkyUI", "SilkyUI", FindTokenSpanAtPosition(session, context), completions));
+        var isNamespaceValue = context.ContextType == XmlContextType.AttributeValue &&
+            SilkyUIXmlSyntax.IsNamespaceDeclaration(context.CurrentAttribute);
+        completionSets.Insert(0, new SilkyUICompletionSet("SilkyUI", "SilkyUI", FindTokenSpanAtPosition(session, context), completions,
+            isNamespaceValue ? point.Snapshot.CreateTrackingPoint(point.Position, PointTrackingMode.Positive) : null));
     }
 
     private static Completion ToVsCompletion(SilkyUICompletionItem item)
@@ -61,6 +64,9 @@ internal sealed class SilkyUICompletionSource(ITextBuffer textBuffer, SilkyUIMet
         var snapshot = point.Snapshot;
         var isNamespaceUri = context.ContextType == XmlContextType.AttributeValue &&
                              SilkyUIXmlSyntax.IsNamespaceDeclaration(context.CurrentAttribute);
+        if (isNamespaceUri && context.ValueStart >= 0)
+            return snapshot.CreateTrackingSpan(Span.FromBounds(context.ValueStart, context.ValueEnd),
+                SpanTrackingMode.EdgeInclusive);
         var start = point.Position;
         var end = point.Position;
         while (start > 0 && IsCompletionCharacter(snapshot[start - 1], isNamespaceUri)) start--;

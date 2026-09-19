@@ -105,10 +105,21 @@ internal class SilkyUICompletionCommandHandler : IOleCommandTarget
         var isExplicitCommit = pguidCmdGroup == VSConstants.VSStd2K &&
             (nCmdID == (uint)VSConstants.VSStd2KCmdID.RETURN ||
              nCmdID == (uint)VSConstants.VSStd2KCmdID.TAB);
-        var isCommitCharacter = char.IsWhiteSpace(typedChar) ||
+        var beforePoint = m_textView.Caret.Position.BufferPosition;
+        var beforeContext = XmlContextAnalyzer.Analyze(beforePoint.Snapshot, beforePoint.Position);
+        var isNamespaceValue = beforeContext.ContextType == XmlContextType.AttributeValue &&
+            SilkyUIXmlSyntax.IsNamespaceDeclaration(beforeContext.CurrentAttribute);
+        var isNamespaceCancellation = isNamespaceValue && typedChar is ';' or '=';
+        var isNamespaceContinuation = isNamespaceValue && typedChar is ':' or '/';
+        var isCommitCharacter = !isNamespaceContinuation && (char.IsWhiteSpace(typedChar) ||
             (!SilkyUIXmlSyntax.IsNameChar(typedChar) && char.IsPunctuation(typedChar)) ||
-            typedChar is '<' or '>' or '=';
-        if (isExplicitCommit || isCommitCharacter)
+            typedChar is '<' or '>' or '=');
+        if (isNamespaceCancellation)
+        {
+            // 不支持的 URI 分隔符原样输入，不能提交当前候选替换手写内容。
+            if (m_session is { IsDismissed: false }) m_session.Dismiss();
+        }
+        else if (isExplicitCommit || isCommitCharacter)
         {
             // 检查当前有没有打开的补全弹窗
             if (m_session is { IsDismissed: false })
@@ -126,25 +137,37 @@ internal class SilkyUICompletionCommandHandler : IOleCommandTarget
         // 先把命令传递给下一个处理程序，让字符先输入到编辑器里
         // 比如用户输入了字母'a'，先让'a'出现在编辑器中，然后我们再弹出补全
         var retVal = m_nextCommandHandler.Exec(ref pguidCmdGroup, nCmdID, nCmdexecopt, pvaIn, pvaOut);
+        if (isNamespaceCancellation) return retVal;
         var handled = false;
 
-        // 句点和成员标签后的空格改变补全上下文，必须在字符写入后重新分析。
-        if ((typedChar == '.' || typedChar == ' ') && ErrorHandler.Succeeded(retVal) &&
-            RestartMemberCompletion())
-            return retVal;
-
-        // 冒号改变普通属性/命名空间属性上下文，重建列表而不是提交旧选项。
-        if (typedChar == ':' && ErrorHandler.Succeeded(retVal))
+        // 输入 CLR URI 前缀后的冒号或删除字符时，重新读取命名空间上下文。
+        var afterPoint = m_textView.Caret.Position.BufferPosition;
+        var afterContext = XmlContextAnalyzer.Analyze(afterPoint.Snapshot, afterPoint.Position);
+        if (ErrorHandler.Succeeded(retVal) && afterContext.ContextType == XmlContextType.AttributeValue &&
+            SilkyUIXmlSyntax.IsNamespaceDeclaration(afterContext.CurrentAttribute) &&
+            (typedChar == ':' ||
+             commandID == (uint)VSConstants.VSStd2KCmdID.BACKSPACE ||
+             commandID == (uint)VSConstants.VSStd2KCmdID.DELETE))
         {
             if (m_session is { IsDismissed: false }) m_session.Dismiss();
-            var context = XmlContextAnalyzer.Analyze(
-                m_textView.Caret.Position.BufferPosition.Snapshot,
-                m_textView.Caret.Position.BufferPosition.Position);
-            if (context.ContextType is XmlContextType.TagName or XmlContextType.AttributeName)
-            {
-                TriggerCompletion();
-                if (m_session is { IsDismissed: false }) m_session.Filter();
-            }
+            TriggerCompletion();
+            if (m_session is { IsDismissed: false }) m_session.Filter();
+            return retVal;
+        }
+
+        // 标签起始、前缀变化及成员属性上下文需要重新读取作用域和候选。
+        var isNameContext = afterContext.ContextType is XmlContextType.TagName or XmlContextType.AttributeName;
+        var isTagDeletion = afterContext.ContextType == XmlContextType.TagName &&
+            (commandID == (uint)VSConstants.VSStd2KCmdID.BACKSPACE ||
+             commandID == (uint)VSConstants.VSStd2KCmdID.DELETE);
+        var isMemberAttributeStart = typedChar == ' ' && afterContext.ContextType == XmlContextType.AttributeName &&
+            afterContext.Tag?.Kind == SilkyUIXmlTagKind.Member;
+        if (ErrorHandler.Succeeded(retVal) &&
+            ((isNameContext && typedChar is '<' or ':') || isTagDeletion || isMemberAttributeStart))
+        {
+            if (m_session is { IsDismissed: false }) m_session.Dismiss();
+            TriggerCompletion();
+            if (m_session is { IsDismissed: false }) m_session.Filter();
             return retVal;
         }
 
@@ -171,26 +194,6 @@ internal class SilkyUICompletionCommandHandler : IOleCommandTarget
         }
 
         return handled ? VSConstants.S_OK : retVal;
-    }
-
-    private bool RestartMemberCompletion()
-    {
-        var point = m_textView.Caret.Position.BufferPosition;
-        var context = XmlContextAnalyzer.Analyze(point.Snapshot, point.Position);
-        var isMemberTagName = context.ContextType == XmlContextType.TagName &&
-            (context.CurrentTag == "M" || context.CurrentTag.StartsWith("M.", StringComparison.Ordinal));
-        var isMemberAttributeName = context.ContextType == XmlContextType.AttributeName &&
-            context.Tag?.Kind == SilkyUIXmlTagKind.Member;
-
-        if (!isMemberTagName && !isMemberAttributeName)
-            return false;
-
-        if (m_session is { IsDismissed: false })
-            m_session.Dismiss();
-
-        if (TriggerCompletion() && m_session is { IsDismissed: false })
-            m_session.Filter();
-        return true;
     }
 
     /*
