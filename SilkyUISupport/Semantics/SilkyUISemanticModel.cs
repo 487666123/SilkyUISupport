@@ -159,7 +159,7 @@ internal sealed class SilkyUISemanticModel
             ClrProject?.Compilation.Assembly.GetTypeByMetadataName(className) is { } type)
         {
             var line = type.Locations.FirstOrDefault(location => location.IsInSource)?.GetLineSpan();
-            bodyClass = new(type.Name, type.ToDisplayString(), [.. GetReadableProperties(type)],
+            bodyClass = new(type.Name, type.ToDisplayString(), [.. GetPublicProperties(type)],
                 line?.Path ?? string.Empty, line?.StartLinePosition.Line ?? 0, line?.StartLinePosition.Character ?? 0);
         }
         return new(tag, true, null, bodyClass, bodyClass == null ? [] : [.. bodyClass.Properties], null);
@@ -177,7 +177,7 @@ internal sealed class SilkyUISemanticModel
             var type = ClrProject.ResolveType(uri, SilkyUIXmlSyntax.GetLocalName(tag.Name), ClrAccessContext, out var error);
             if (type == null) return new(tag, false, null, null, [], null, error);
             var line = type.Locations.FirstOrDefault(location => location.IsInSource)?.GetLineSpan();
-            mapped = new(type, [.. GetReadableProperties(type)], tag.Name, line?.Path ?? string.Empty,
+            mapped = new(type, [.. GetPublicProperties(type)], tag.Name, line?.Path ?? string.Empty,
                 line?.StartLinePosition.Line ?? 0, line?.StartLinePosition.Character ?? 0);
         }
         else
@@ -195,7 +195,7 @@ internal sealed class SilkyUISemanticModel
         var member = FindProperty(GetParentProperties(tag), SilkyUIXmlSyntax.GetLocalName(tag.Name));
         if (member == null || !IsExpandableMemberProperty(member.Property))
             return new(tag, false, null, null, [], null);
-        return new(tag, true, null, null, GetReadableProperties(member.Property.Type), member);
+        return new(tag, true, null, null, GetPublicProperties(member.Property.Type), member);
     }
 
     private ImmutableList<SilkyUIProperty> ResolveStyleProperties(SilkyUIXmlTag tag)
@@ -219,8 +219,8 @@ internal sealed class SilkyUISemanticModel
         return false;
     }
 
-    /// <summary>保留可读属性供下一层成员展开；赋值与绑定由各功能检查公开 setter。</summary>
-    private static ImmutableList<SilkyUIProperty> GetReadableProperties(ITypeSymbol type)
+    /// <summary>保留公开可读或可写属性；成员展开检查 getter，赋值与绑定检查 setter。</summary>
+    private static ImmutableList<SilkyUIProperty> GetPublicProperties(ITypeSymbol type)
     {
         if (type is not INamedTypeSymbol namedType) return [];
         var properties = new List<SilkyUIProperty>();
@@ -229,7 +229,8 @@ internal sealed class SilkyUISemanticModel
             foreach (var property in current.GetMembers().OfType<IPropertySymbol>())
                 if (seen.Add(property.Name) && !property.IsStatic && !property.IsIndexer && property.Parameters.Length == 0 &&
                     property.DeclaredAccessibility == Accessibility.Public &&
-                    property.GetMethod?.DeclaredAccessibility == Accessibility.Public)
+                    (property.GetMethod?.DeclaredAccessibility == Accessibility.Public ||
+                     property.SetMethod?.DeclaredAccessibility == Accessibility.Public))
                     properties.Add(CreateProperty(property));
         return [.. properties];
     }

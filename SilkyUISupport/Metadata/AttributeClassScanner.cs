@@ -52,7 +52,7 @@ internal class AttributeClassScanner
                     if (string.IsNullOrWhiteSpace(alias)) continue;
 
                     if (properties.IsDefault)
-                        properties = GetPublicReadableProperties(cls).ToImmutableArray();
+                        properties = GetPublicProperties(cls).ToImmutableArray();
 
                     xmlMappingClasses.Add(new XmlMappingClass(
                         cls,
@@ -117,7 +117,7 @@ internal class AttributeClassScanner
             {
                 if (!InheritsFrom(cls, elementGroupType)) continue;
 
-                var properties = GetPublicReadableProperties(cls);
+                var properties = GetPublicProperties(cls);
                 var sourceLocation = cls.Locations.FirstOrDefault(location => location.IsInSource);
                 var lineSpan = sourceLocation?.GetLineSpan();
                 result.Add(new SilkyUIElementGroupClass(cls.Name, cls.ToDisplayString(), [.. properties],
@@ -148,12 +148,12 @@ internal class AttributeClassScanner
     }
 
     /// <summary>
-    /// 获取类中所有公开可读的实例非索引属性（包含继承自父类的属性）。
-    /// Setter 是否可用由具体补全场景进一步判断。
+    /// 获取类中公开可读或可写的实例非索引属性（包含继承自父类的属性）。
+    /// Getter 和 setter 是否可用由具体使用场景进一步判断。
     /// </summary>
     /// <param name="cls">类符号</param>
     /// <returns>属性列表</returns>
-    internal List<SilkyUIProperty> GetPublicReadableProperties(INamedTypeSymbol cls)
+    internal List<SilkyUIProperty> GetPublicProperties(INamedTypeSymbol cls)
     {
         var propertyDict = new Dictionary<string, SilkyUIProperty>();
         var seenNames = new HashSet<string>(StringComparer.Ordinal);
@@ -170,7 +170,8 @@ internal class AttributeClassScanner
 
                 if (property.IsStatic || property.IsIndexer || property.Parameters.Length != 0 ||
                     property.DeclaredAccessibility != Accessibility.Public ||
-                    property.GetMethod == null || property.GetMethod.DeclaredAccessibility != Accessibility.Public)
+                    (property.GetMethod?.DeclaredAccessibility != Accessibility.Public &&
+                     property.SetMethod?.DeclaredAccessibility != Accessibility.Public))
                     continue;
 
                 ImmutableArray<string> enumValues = [];

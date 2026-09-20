@@ -125,7 +125,7 @@ internal class SilkyUIMetadataService : IPartImportsSatisfiedNotification
             ImmutableList<SilkyUIElementGroupClass> groupClasses = [.. await Task.Run(() => ClassScanner.GetUIElementGroupClassesAsync(solution))];
             var targetProperties = await Task.Run(() => targetClasses.ToImmutableDictionary(
                 target => target.FullName,
-                target => (ImmutableList<SilkyUIProperty>)[.. ClassScanner.GetPublicReadableProperties(target.Class)],
+                target => (ImmutableList<SilkyUIProperty>)[.. ClassScanner.GetPublicProperties(target.Class)],
                 StringComparer.Ordinal));
 
             var clrProjects = await Task.Run(() => SilkyUIClrProjectIndex.CreateAsync(solution));
